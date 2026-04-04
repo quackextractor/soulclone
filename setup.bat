@@ -2,7 +2,7 @@
 setlocal
 
 echo ============================================
-echo  Lustsoul Discord Persona - Environment Setup
+echo  Discord Persona - Environment Setup
 echo ============================================
 echo.
 
