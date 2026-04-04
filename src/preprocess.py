@@ -111,7 +111,8 @@ def extract_pairs_from_csv(filepath):
             
             for row in reader:
                 author = row.get("Author", "").strip()
-                content = row.get("Content", "").replace('\n', ' ').replace('\r', '')
+                # Preserved newlines for structural formatting
+                content = row.get("Content", "")
                 attachments = row.get("Attachments", "").strip()
                 date_str = row.get("Date", "").strip()
             
@@ -135,6 +136,12 @@ def extract_pairs_from_csv(filepath):
                 content = MARKDOWN_LINK_PATTERN.sub(r'\1 [Link]', content)
                 cleaned_content = URL_PATTERN.sub("[Link]", content).strip()
                 
+                # Condense consecutive placeholders to prevent context pollution
+                cleaned_content = re.sub(r'(\[Link\]\s*){2,}', '[Multiple Links] ', cleaned_content)
+                cleaned_content = re.sub(r'(\[Attachment\]\s*){2,}', '[Multiple Attachments] ', cleaned_content)
+                cleaned_content = re.sub(r'(\[Empty/Reaction\]\s*){2,}', '[Multiple Reactions] ', cleaned_content)
+                cleaned_content = cleaned_content.strip()
+                
                 if SYSTEM_MSG_PATTERN.search(cleaned_content) or COMMAND_PATTERN.search(cleaned_content):
                     continue
                     
@@ -151,7 +158,7 @@ def extract_pairs_from_csv(filepath):
                         if last_msg['content'] == "[Empty/Reaction]":
                             last_msg['content'] = cleaned_content
                         elif cleaned_content != "[Empty/Reaction]":
-                            last_msg['content'] += f" {cleaned_content}"
+                            last_msg['content'] += f" \n{cleaned_content}" # Added newline for merged messages
                         if msg_time: last_msg['time'] = msg_time
                         continue
                         
@@ -228,7 +235,8 @@ def extract_pairs_from_csv(filepath):
                                 content_str = " ".join(ctx_words[:MAX_MSG_WORDS]) + "..."
                             
                             if role == "user":
-                                content_str = f"{ctx_msg['author']}: {content_str}"
+                                # Updated structural format for Mistral NeMo
+                                content_str = f"[{ctx_msg['author']}]: {content_str}"
                                 
                             if messages[-1]["role"] == role:
                                 messages[-1]["content"] += f"\n{content_str}"
