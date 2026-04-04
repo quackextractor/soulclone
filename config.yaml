@@ -20,4 +20,4 @@ preprocessing:
     - "[Empty/Reaction]"
 
 sampling:
-  target_total_samples: 30
+  target_total_samples: 100
