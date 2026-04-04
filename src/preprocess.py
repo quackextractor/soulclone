@@ -26,7 +26,7 @@ BOT_PATTERN = re.compile(r'#\d{4}$')
 SYSTEM_MSG_PATTERN = re.compile(r'^(Started a call that lasted|Added .* to the group|Left the group|Changed the channel|Pinned a message)', re.IGNORECASE)
 COMMAND_PATTERN = re.compile(r'^([!/?\.\-]|p!|m!|p\|)\w+', re.IGNORECASE)
 
-# FIXED: Removed the capture group that caused unmatched group errors
+# FIXED: Replaced destructive erasure with a generic [User] tag to preserve target context
 USER_PING_PATTERN = re.compile(r'<@&?\d+>')
 GENERAL_PING_PATTERN = re.compile(r'@(everyone|here|[a-zA-Z0-9_.-]+)')
 
@@ -39,7 +39,7 @@ MAX_CONTEXT = config["preprocessing"]["max_context_window"]
 # Configurable downsampling and truncation parameters
 SHORT_WC = config["preprocessing"].get("short_response_word_count", 3)
 DOWNSAMPLE_RATE = config["preprocessing"].get("short_response_downsample_rate", 0.60)
-MAX_MSG_WORDS = 100 # Prevents copypastas from truncating the target response
+MAX_MSG_WORDS = 100 # Prevents copypastas from blowing up the context window
 
 def parse_date(date_str):
     """Helper to parse common Discord export timestamp formats."""
@@ -80,8 +80,7 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                     
                 content = UNICODE_SPAM_PATTERN.sub('', content).strip()
                 
-                # FIXED: Safer ping replacement to avoid re.error: unmatched group
-                content = USER_PING_PATTERN.sub('', content)
+                content = USER_PING_PATTERN.sub('[User]', content)
                 content = GENERAL_PING_PATTERN.sub(r'\1', content)
                 content = content.replace('<', '').replace('>', '')
                 
@@ -93,10 +92,6 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 content = MARKDOWN_LINK_PATTERN.sub(r'\1 [Link]', content)
                 cleaned_content = URL_PATTERN.sub("[Link]", content).strip()
                 
-                # Truncate extremely long messages to protect context window
-                words = cleaned_content.split()
-                if len(words) > MAX_MSG_WORDS:
-                    cleaned_content = " ".join(words[:MAX_MSG_WORDS]) + "..."
                 
                 if SYSTEM_MSG_PATTERN.search(cleaned_content) or COMMAND_PATTERN.search(cleaned_content):
                     continue
@@ -105,10 +100,13 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 
                 if grouped_messages:
                     last_msg = grouped_messages[-1]
-                    time_delta_sec = (msg_time - last_msg['time']).total_seconds() if msg_time and last_msg['time'] else 0
+                    
+                    is_within_time = False
+                    if msg_time and last_msg['time']:
+                        time_delta_sec = (msg_time - last_msg['time']).total_seconds()
+                        is_within_time = (time_delta_sec < 3600)
                     
                     is_same_author = (last_msg['author'].lower() == author.lower())
-                    is_within_time = (time_delta_sec < 3600)
                     
                     if is_same_author and is_within_time:
                         if last_msg['content'] == "[Empty/Reaction]":
@@ -145,6 +143,9 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 is_target = author.lower() == TARGET_USER.lower()
                 word_count = len(cleaned_content.split())
                 
+                if is_target and word_count > MAX_MSG_WORDS:
+                    continue
+
                 skip_due_to_downsampling = False
                 if is_target and word_count < SHORT_WC:
                     if random.random() < DOWNSAMPLE_RATE:
@@ -154,8 +155,10 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                     if len(context_queue) >= min_context_window:
                         
                         target_response = cleaned_content
+                        
                         for p in PLACEHOLDERS:
-                            target_response = target_response.replace(p, "").strip()
+                            target_response = target_response.replace(p, "")
+                        target_response = " ".join(target_response.split())
                             
                         if target_response: 
                             # Calculate placeholder ratio for the context
@@ -171,8 +174,8 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                             # Proceed only if the context isn't overrun with placeholders
                             if placeholder_ratio <= 0.5 and not all_placeholders:
                                 lang_hint = ""
-                                # Only detect language if string is long enough to be accurate
-                                if len(target_response.split()) >= 3:
+                                
+                                if len(target_response.split()) >= 6:
                                     try:
                                         lang = detect(target_response)
                                         lang_map = {'en': 'English', 'cs': 'Czech', 'de': 'German'}
@@ -186,7 +189,12 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                                 
                                 for ctx_msg in context_queue:
                                     role = "assistant" if ctx_msg["author"].lower() == TARGET_USER.lower() else "user"
-                                    content_str = ctx_msg['content']
+                                    
+                                    ctx_words = ctx_msg['content'].split()
+                                    if len(ctx_words) > MAX_MSG_WORDS:
+                                        content_str = " ".join(ctx_words[:MAX_MSG_WORDS]) + "..."
+                                    else:
+                                        content_str = ctx_msg['content']
                                     
                                     if role == "user":
                                         content_str = f"{ctx_msg['author']}: {content_str}"
