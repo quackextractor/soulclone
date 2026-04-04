@@ -8,7 +8,7 @@ A core feature of the resulting dataset is authenticity: the tool preserves the 
 ## Technical Stack
 * **Environment:** Designed for fine-tuning via Google Colab (T4 GPU).
 * **Training Method:** QLoRA (Low Rank Adaptation) with 4-bit quantization.
-* **Expected Base Models:** Quantized models such as Llama-3-8B or Mistral-7B.
+* **Expected Base Models:** Multilingual quantized models such as Mistral-7B or Cohere (these are highly recommended over a standard Llama-3-8B due to their superior capability to seamlessly code-switch between languages like English, Czech, and German).
 * **Libraries:** Hugging Face `transformers`, `datasets`, `peft`, `trl`, and `bitsandbytes`.
 
 ## Setup Instructions

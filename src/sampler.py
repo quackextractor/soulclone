@@ -1,56 +1,39 @@
 import os
-import json
 import random
 import yaml
-from dotenv import load_dotenv
-
-from src.preprocess import extract_pairs_from_csv
 
 def generate_samples():
-    load_dotenv()
-    source_dir = os.getenv("SOURCE_DIR")
-
-    if not source_dir:
-        print("Error: SOURCE_DIR not found in .env file.")
-        return
-
     # Load configuration
     with open("config.yaml", "r", encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     output_dir = config["directories"]["output"]
-    os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(output_dir, config["files"]["samples"])
+    dataset_file = os.path.join(output_dir, config["files"]["dataset"])
+    samples_file = os.path.join(output_dir, config["files"]["samples"])
+    target_total_samples = config["sampling"]["target_total_samples"]
 
-    csv_files = []
-    for root, dirs, files in os.walk(source_dir):
-        for file in files:
-            if file.endswith(".csv"):
-                csv_files.append(os.path.join(root, file))
-    
-    if not csv_files:
-        print("No CSV files found.")
+    if not os.path.exists(dataset_file):
+        print(f"Error: {dataset_file} not found. Please run 'preprocess' first to generate the dataset.")
         return
 
-    target_total_samples = config["sampling"]["target_total_samples"]
-    samples_per_file = max(1, target_total_samples // len(csv_files))
+    # Read preprocessed lines directly
+    with open(dataset_file, 'r', encoding='utf-8') as f:
+        all_lines = f.readlines()
 
-    dataset = []
+    if not all_lines:
+        print("Error: The dataset file is empty.")
+        return
 
-    for filepath in csv_files:
-        # Pull the pre-cleaned data directly from our main pipeline
-        file_samples = extract_pairs_from_csv(filepath)
+    # Gather random samples based on total limit, guaranteeing exact target length
+    sample_size = min(target_total_samples, len(all_lines))
+    sampled_lines = random.sample(all_lines, sample_size)
 
-        if len(file_samples) > samples_per_file:
-            dataset.extend(random.sample(file_samples, samples_per_file))
-        else:
-            dataset.extend(file_samples)
+    # Save to samples file
+    with open(samples_file, 'w', encoding='utf-8') as f:
+        for line in sampled_lines:
+            f.write(line)
 
-    with open(output_file, 'w', encoding='utf-8') as f:
-        for entry in dataset:
-            f.write(json.dumps(entry) + "\n")
-
-    print(f"Sampling complete. {len(dataset)} context pairs saved to {output_file}.")
+    print(f"Sampling complete. {len(sampled_lines)} context pairs saved to {samples_file}.")
 
 if __name__ == "__main__":
     generate_samples()

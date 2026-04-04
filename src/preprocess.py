@@ -3,6 +3,7 @@ import csv
 import re
 import json
 import yaml
+import random
 from dotenv import load_dotenv
 
 # Load environment variables early for global access
@@ -72,18 +73,23 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                             all_placeholders = all(val in PLACEHOLDERS for val in context_values)
                             
                             if not all_placeholders:
-                                # Inject target user into the system prompt
-                                system_prompt = f"You are {TARGET_USER} in a Discord chat."
-                                user_context = "\n".join(context_queue)
-                                
-                                data_point = {
-                                    "messages": [
-                                        {"role": "system", "content": system_prompt},
-                                        {"role": "user", "content": user_context},
-                                        {"role": "assistant", "content": cleaned_content}
-                                    ]
-                                }
-                                dataset.append(data_point)
+                                # Apply length penalty/downsampling for short responses (Lazy LLM fix)
+                                word_count = len(cleaned_content.split())
+                                if word_count < 3 and random.random() < 0.60:
+                                    pass # Skip adding this to the dataset 60% of the time
+                                else:
+                                    # Inject target user into the system prompt
+                                    system_prompt = f"You are {TARGET_USER} in a Discord chat."
+                                    user_context = "\n".join(context_queue)
+                                    
+                                    data_point = {
+                                        "messages": [
+                                            {"role": "system", "content": system_prompt},
+                                            {"role": "user", "content": user_context},
+                                            {"role": "assistant", "content": cleaned_content}
+                                        ]
+                                    }
+                                    dataset.append(data_point)
                     
                     context_queue.append(f"{author}: {cleaned_content}")
                 else:
@@ -97,7 +103,6 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
     return dataset
 
 def process_discord_logs():
-    # load_dotenv() removed from here since it's now at the top
     source_dir = os.getenv("SOURCE_DIR")
 
     if not source_dir:
