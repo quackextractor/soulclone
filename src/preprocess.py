@@ -11,14 +11,14 @@ from langdetect import detect, DetectorFactory
 # Ensure consistent results from langdetect
 DetectorFactory.seed = 0
 
-# Load environment variables early for global access
+# Load environment variables
 load_dotenv()
 
 # Load configuration
 with open("config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
 
-# Regex patterns globally defined for efficiency
+# Regex patterns
 URL_PATTERN = re.compile(r'http[s]?://\S+')
 MARKDOWN_LINK_PATTERN = re.compile(r'\[([^\]]*)\]\(http[s]?://[^\)]+\)')
 UNICODE_SPAM_PATTERN = re.compile(r'[\u1cbc\u200b\u200c\u200d\u200e\u200f\u2028\u2029\u2800]+')
@@ -26,8 +26,8 @@ BOT_PATTERN = re.compile(r'#\d{4}$')
 SYSTEM_MSG_PATTERN = re.compile(r'^(Started a call that lasted|Added .* to the group|Left the group|Changed the channel|Pinned a message)', re.IGNORECASE)
 COMMAND_PATTERN = re.compile(r'^([!/?\.\-]|p!|m!|p\|)\w+', re.IGNORECASE)
 
-# FIXED: Replaced destructive erasure with a generic [User] tag to preserve target context
-USER_PING_PATTERN = re.compile(r'<@&?\d+>')
+# IMPROVED: Captures the ID from the ping to allow for mapping
+USER_PING_PATTERN = re.compile(r'<@!?&?(\d+)>')
 GENERAL_PING_PATTERN = re.compile(r'@(everyone|here|[a-zA-Z0-9_.-]+)')
 
 TARGET_USER = os.getenv("TARGET_USER", "your_target_username")
@@ -36,15 +36,15 @@ PLACEHOLDERS = set(config["preprocessing"]["placeholders"])
 MIN_CONTEXT = config["preprocessing"]["min_context_window"]
 MAX_CONTEXT = config["preprocessing"]["max_context_window"]
 
-# Configurable downsampling and truncation parameters
 SHORT_WC = config["preprocessing"].get("short_response_word_count", 3)
 DOWNSAMPLE_RATE = config["preprocessing"].get("short_response_downsample_rate", 0.60)
-MAX_MSG_WORDS = 100 # Prevents copypastas from blowing up the context window
+MAX_MSG_WORDS = 100 
+
+# Global map to store ID -> Username
+USER_ID_MAP = {}
 
 def parse_date(date_str):
-    """Helper to parse common Discord export timestamp formats."""
-    if not date_str:
-        return None
+    if not date_str: return None
     try:
         date_str = date_str.replace('Z', '+00:00')
         return datetime.fromisoformat(date_str)
@@ -55,14 +55,44 @@ def parse_date(date_str):
         except Exception:
             return None
 
+def build_global_user_map(source_dir):
+    """
+    Phase 0: Scans all CSVs to build a dictionary of UserIDs to Names.
+    This ensures pings are resolved even if a user appears in a different channel.
+    """
+    print("Building Username Map...")
+    for root, _, files in os.walk(source_dir):
+        for file in files:
+            if file.endswith(".csv"):
+                try:
+                    with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
+                        reader = csv.DictReader(f)
+                        for row in reader:
+                            author_name = row.get("Author", "").strip()
+                            # Some exports include 'AuthorID' or 'User ID'
+                            author_id = row.get("AuthorID") or row.get("User ID")
+                            
+                            if author_name and author_id:
+                                # Clean potential discriminator (Name#1234 -> Name)
+                                clean_name = author_name.split('#')[0]
+                                USER_ID_MAP[str(author_id)] = clean_name
+                except Exception:
+                    continue
+    print(f"Mapped {len(USER_ID_MAP)} unique users.")
+
+def resolve_mentions(content):
+    """Replaces <@12345> with @Name using the discovered map."""
+    def replace_match(match):
+        uid = match.group(1)
+        return f"@{USER_ID_MAP.get(uid, 'User')}"
+    
+    return USER_PING_PATTERN.sub(replace_match, content)
+
 def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context_window=MAX_CONTEXT):
-    """Reads a single CSV and returns a list of cleaned JSONL context pairs."""
     dataset = []
     try:
         with open(filepath, 'r', encoding='utf-8') as f:
             reader = csv.DictReader(f)
-            
-            # --- Phase 1: Grouping & Cleaning ---
             grouped_messages = []
             
             for row in reader:
@@ -71,16 +101,16 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 attachments = row.get("Attachments", "").strip()
                 date_str = row.get("Date", "").strip()
             
-                if not author:
-                    continue
+                if not author: continue
                 
                 author_lower = author.lower()
-                if BOT_PATTERN.search(author) or "bot" in author_lower or "promptinspector" in author_lower or author_lower in KNOWN_BOTS:
+                if BOT_PATTERN.search(author) or "bot" in author_lower or author_lower in KNOWN_BOTS:
                     continue
                     
                 content = UNICODE_SPAM_PATTERN.sub('', content).strip()
                 
-                content = USER_PING_PATTERN.sub('[User]', content)
+                # IMPROVED: Resolve mentions using the map instead of generic [User]
+                content = resolve_mentions(content)
                 content = GENERAL_PING_PATTERN.sub(r'\1', content)
                 content = content.replace('<', '').replace('>', '')
                 
@@ -92,7 +122,6 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 content = MARKDOWN_LINK_PATTERN.sub(r'\1 [Link]', content)
                 cleaned_content = URL_PATTERN.sub("[Link]", content).strip()
                 
-                
                 if SYSTEM_MSG_PATTERN.search(cleaned_content) or COMMAND_PATTERN.search(cleaned_content):
                     continue
                     
@@ -100,7 +129,6 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 
                 if grouped_messages:
                     last_msg = grouped_messages[-1]
-                    
                     is_within_time = False
                     if msg_time and last_msg['time']:
                         time_delta_sec = (msg_time - last_msg['time']).total_seconds()
@@ -113,18 +141,16 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                             last_msg['content'] = cleaned_content
                         elif cleaned_content != "[Empty/Reaction]":
                             last_msg['content'] += f" {cleaned_content}"
-                        
                         if msg_time:
                             last_msg['time'] = msg_time
                         continue
                         
                 grouped_messages.append({
-                    "author": author,
+                    "author": author.split('#')[0], # Clean discriminator for consistency
                     "content": cleaned_content,
                     "time": msg_time
                 })
                
-            # --- Phase 2: Context Queueing & Generation ---
             context_queue = []
             last_time = None
             
@@ -137,8 +163,7 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                     if (msg_time - last_time).total_seconds() > 3600:
                         context_queue.clear()
                         
-                if msg_time:
-                    last_time = msg_time
+                if msg_time: last_time = msg_time
                 
                 is_target = author.lower() == TARGET_USER.lower()
                 word_count = len(cleaned_content.split())
@@ -153,15 +178,12 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
 
                 if is_target and not skip_due_to_downsampling:
                     if len(context_queue) >= min_context_window:
-                        
                         target_response = cleaned_content
-                        
                         for p in PLACEHOLDERS:
                             target_response = target_response.replace(p, "")
                         target_response = " ".join(target_response.split())
                             
                         if target_response: 
-                            # Calculate placeholder ratio for the context
                             context_words = []
                             for c in context_queue:
                                 context_words.extend(c['content'].split())
@@ -169,28 +191,25 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                             total_words = len(context_words)
                             placeholder_count = sum(1 for w in context_words if any(p in w for p in PLACEHOLDERS))
                             placeholder_ratio = placeholder_count / total_words if total_words > 0 else 0
-                            all_placeholders = (total_words == placeholder_count) and (total_words > 0)
                             
-                            # Proceed only if the context isn't overrun with placeholders
-                            if placeholder_ratio <= 0.5 and not all_placeholders:
+                            if placeholder_ratio <= 0.5:
                                 lang_hint = ""
-                                
                                 if len(target_response.split()) >= 6:
                                     try:
                                         lang = detect(target_response)
                                         lang_map = {'en': 'English', 'cs': 'Czech', 'de': 'German'}
                                         if lang in lang_map:
                                             lang_hint = f" Respond in {lang_map[lang]}."
-                                    except Exception:
-                                        pass
+                                    except Exception: pass
                                         
                                 system_prompt = f"You are {TARGET_USER} in a Discord chat.{lang_hint}"
                                 messages = [{"role": "system", "content": system_prompt}]
                                 
                                 for ctx_msg in context_queue:
                                     role = "assistant" if ctx_msg["author"].lower() == TARGET_USER.lower() else "user"
-                                    
                                     ctx_words = ctx_msg['content'].split()
+                                    
+                                    # History truncation (only for context, not target)
                                     if len(ctx_words) > MAX_MSG_WORDS:
                                         content_str = " ".join(ctx_words[:MAX_MSG_WORDS]) + "..."
                                     else:
@@ -213,34 +232,32 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
 
     except Exception as e:
         print(f"Could not process {filepath}: {e}")
-        
     return dataset
 
 def process_discord_logs():
     source_dir = os.getenv("SOURCE_DIR")
     if not source_dir:
-        print("Error: SOURCE_DIR not found in .env file.")
+        print("Error: SOURCE_DIR not found.")
         return
         
-    if TARGET_USER == "your_target_username":
-        print("Warning: TARGET_USER is not set in .env file.")
+    # Step 1: Discover usernames to populate the map
+    build_global_user_map(source_dir)
 
     output_dir = config["directories"]["output"]
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, config["files"]["dataset"])
 
     dataset = []
-    for root, dirs, files in os.walk(source_dir):
+    for root, _, files in os.walk(source_dir):
         for file in files:
             if file.endswith(".csv"):
-                filepath = os.path.join(root, file)
-                dataset.extend(extract_pairs_from_csv(filepath))
+                dataset.extend(extract_pairs_from_csv(os.path.join(root, file)))
 
     with open(output_file, 'w', encoding='utf-8') as f:
         for entry in dataset:
             f.write(json.dumps(entry) + "\n")
 
-    print(f"Processing complete. {len(dataset)} context pairs saved to {output_file}.")
+    print(f"Done. {len(dataset)} pairs saved to {output_file}.")
 
 if __name__ == "__main__":
     process_discord_logs()
