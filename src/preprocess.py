@@ -5,6 +5,9 @@ import json
 import yaml
 from dotenv import load_dotenv
 
+# Load environment variables early for global access
+load_dotenv()
+
 # Load configuration
 with open("config.yaml", "r", encoding="utf-8") as f:
     config = yaml.safe_load(f)
@@ -18,7 +21,7 @@ SYSTEM_MSG_PATTERN = re.compile(r'^(Started a call that lasted|Added .* to the g
 COMMAND_PATTERN = re.compile(r'^([!/?\.\-]|p!|m!|p\|)\w+', re.IGNORECASE)
 PING_PATTERN = re.compile(r'<@&?\d+>|@(everyone|here|[a-zA-Z0-9_.-]+)')
 
-TARGET_USER = config.get("target_user", "your_target_username")
+TARGET_USER = os.getenv("TARGET_USER", "your_target_username")
 KNOWN_BOTS = set(config["preprocessing"]["known_bots"])
 PLACEHOLDERS = set(config["preprocessing"]["placeholders"])
 MIN_CONTEXT = config["preprocessing"]["min_context_window"]
@@ -94,12 +97,15 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
     return dataset
 
 def process_discord_logs():
-    load_dotenv()
+    # load_dotenv() removed from here since it's now at the top
     source_dir = os.getenv("SOURCE_DIR")
 
     if not source_dir:
         print("Error: SOURCE_DIR not found in .env file.")
         return
+        
+    if TARGET_USER == "your_target_username":
+        print("Warning: TARGET_USER is not set in .env file.")
 
     output_dir = config["directories"]["output"]
     os.makedirs(output_dir, exist_ok=True)

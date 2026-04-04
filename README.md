@@ -18,11 +18,11 @@ A core feature of the resulting dataset is authenticity: the tool preserves the 
    setup.bat
    ```
    *(Alternatively, manually create a `.venv`, activate it, and run `pip install -r requirements.txt`)*
-3. Copy `.env.example` to a new file named `.env` and update `SOURCE_DIR` to point to your Discord chat CSV exports.
-4. **Crucial:** Open `config.yaml` and update the `target_user` field to match the exact Discord username you want to clone. You can also adjust context window sizes, placeholder tags, and sampling limits here.
+3. Copy `.env.example` to a new file named `.env`. Update `SOURCE_DIR` to point to your Discord chat CSV exports, and **crucially**, update the `TARGET_USER` field to match the exact Discord username you want to clone.
+4. Open `config.yaml` if you wish to adjust context window sizes, placeholder tags, and sampling limits.
 
 ## Usage
-The unified CLI tool `main.py` serves as the primary entry point. 
+The unified CLI tool `main.py` serves as the primary entry point.
 
 **Available Commands:**
 * `python main.py preprocess` - Process raw Discord CSV exports into a fine-tuning dataset JSONL file.
