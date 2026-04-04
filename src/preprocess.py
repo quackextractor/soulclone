@@ -44,6 +44,9 @@ DROP_ATTACHMENT_ONLY = config["preprocessing"].get("drop_attachment_only_respons
 MIN_WORDS_LANG_DETECT = config["preprocessing"].get("min_words_for_language_detect", 6)
 LANG_MAP = config["preprocessing"].get("lang_map", {})
 
+# Language detection mode: A (None), B (Summary only), C (Summary + Hints)
+LANG_MODE = config["preprocessing"].get("language_detection_mode", "B").upper()
+
 # Global map to store ID -> Username
 USER_ID_MAP = {}
 
@@ -196,14 +199,19 @@ def extract_pairs_from_csv(filepath):
 
                     if len(context_queue) >= MIN_CONTEXT:
                         lang_hint = ""
-                        if word_count >= MIN_WORDS_LANG_DETECT:
+                        # Only proceed with language detection if mode is B or C
+                        if LANG_MODE in ["B", "C"] and word_count >= MIN_WORDS_LANG_DETECT:
                             try:
                                 lang = detect(target_response)
-                                if lang in LANG_MAP: 
+                                if lang in LANG_MAP:
                                     lang_name = LANG_MAP[lang]
-                                    lang_hint = f" Respond in {lang_name}."
+                                    # Update stats for both B and C
                                     stats["languages_detected"][lang_name] = stats["languages_detected"].get(lang_name, 0) + 1
-                            except: pass
+                                    # Only add the instruction hint if mode is C
+                                    if LANG_MODE == "C":
+                                        lang_hint = f" Respond in {lang_name}."
+                            except:
+                                pass
                                 
                         messages = [{"role": "system", "content": f"You are {TARGET_USER} in a Discord chat.{lang_hint}"}]
                         

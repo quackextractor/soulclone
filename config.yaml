@@ -15,6 +15,11 @@ preprocessing:
   short_response_downsample_rate: 0.80
   drop_attachment_only_responses: true
   min_words_for_language_detect: 15
+  # Options: 
+  # A: Disable language detection entirely
+  # B: Track in summary.json only (default)
+  # C: Track in summary and use for language hints
+  language_detection_mode: "B"
   
   known_bots:
     - "clyde"
