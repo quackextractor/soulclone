@@ -2,9 +2,8 @@ import argparse
 import sys
 import logging
 
-# Import the processing function from your preprocess module
-from preprocess import process_discord_logs
-from sampler import generate_samples
+from src.preprocess import process_discord_logs
+from src.sampler import generate_samples
 
 def setup_logging():
     """Sets up global console logging.""" #
