@@ -40,7 +40,8 @@ def process_discord_logs():
                         
                         for row in reader:
                             author = row.get("Author", "").strip()
-                            content = row.get("Content", "")
+                            # Replace newlines with spaces to prevent multiline message confusion
+                            content = row.get("Content", "").replace('\n', ' ').replace('\r', '')
                             attachments = row.get("Attachments", "").strip()
                             
                             if not author:
