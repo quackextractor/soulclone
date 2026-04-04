@@ -8,6 +8,8 @@ files:
 preprocessing:
   min_context_window: 3
   max_context_window: 5
+  short_response_word_count: 3
+  short_response_downsample_rate: 0.60
   known_bots:
     - "clyde"
     - "freestuff"

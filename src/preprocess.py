@@ -28,6 +28,10 @@ PLACEHOLDERS = set(config["preprocessing"]["placeholders"])
 MIN_CONTEXT = config["preprocessing"]["min_context_window"]
 MAX_CONTEXT = config["preprocessing"]["max_context_window"]
 
+# Configurable downsampling parameters
+SHORT_WC = config["preprocessing"].get("short_response_word_count", 3)
+DOWNSAMPLE_RATE = config["preprocessing"].get("short_response_downsample_rate", 0.60)
+
 def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context_window=MAX_CONTEXT):
     """Reads a single CSV and returns a list of cleaned JSONL context pairs."""
     dataset = []
@@ -49,8 +53,6 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                     continue
                     
                 content = UNICODE_SPAM_PATTERN.sub('', content).strip()
-                
-                # Sanitize pings by removing the @ symbol or brackets, leaving just the name
                 content = PING_PATTERN.sub(r'\1', content)
                 content = content.replace('<', '').replace('>', '')
                 
@@ -65,7 +67,6 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 if SYSTEM_MSG_PATTERN.search(cleaned_content) or COMMAND_PATTERN.search(cleaned_content):
                     continue
                     
-                # Dynamic check for the target user (case-insensitive)
                 if author.lower() == TARGET_USER.lower():
                     if len(context_queue) >= min_context_window:
                         if cleaned_content not in PLACEHOLDERS:
@@ -73,12 +74,11 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                             all_placeholders = all(val in PLACEHOLDERS for val in context_values)
                             
                             if not all_placeholders:
-                                # Apply length penalty/downsampling for short responses (Lazy LLM fix)
+                                # Apply configurable length penalty/downsampling (Lazy LLM fix)
                                 word_count = len(cleaned_content.split())
-                                if word_count < 3 and random.random() < 0.60:
-                                    pass # Skip adding this to the dataset 60% of the time
+                                if word_count < SHORT_WC and random.random() < DOWNSAMPLE_RATE:
+                                    pass # Skip adding this to the dataset
                                 else:
-                                    # Inject target user into the system prompt
                                     system_prompt = f"You are {TARGET_USER} in a Discord chat."
                                     user_context = "\n".join(context_queue)
                                     
