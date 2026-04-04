@@ -18,7 +18,7 @@ def main():
 
     parser = argparse.ArgumentParser(
         description=(
-            "Lustsoul Discord Persona - Unified CLI Tool\n\n" 
+            "Discord Persona - Unified CLI Tool\n\n" 
             "Available Commands:\n"
             "  python main.py preprocess    # Run the local data pipeline\n"
             "  python main.py sample        # Extract a small jsonl sample"

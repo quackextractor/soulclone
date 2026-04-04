@@ -18,6 +18,7 @@ SYSTEM_MSG_PATTERN = re.compile(r'^(Started a call that lasted|Added .* to the g
 COMMAND_PATTERN = re.compile(r'^([!/?\.\-]|p!|m!|p\|)\w+', re.IGNORECASE)
 PING_PATTERN = re.compile(r'<@&?\d+>|@(everyone|here|[a-zA-Z0-9_.-]+)')
 
+TARGET_USER = config.get("target_user", "your_target_username")
 KNOWN_BOTS = set(config["preprocessing"]["known_bots"])
 PLACEHOLDERS = set(config["preprocessing"]["placeholders"])
 MIN_CONTEXT = config["preprocessing"]["min_context_window"]
@@ -60,14 +61,16 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 if SYSTEM_MSG_PATTERN.search(cleaned_content) or COMMAND_PATTERN.search(cleaned_content):
                     continue
                     
-                if author == "lustsoul":
+                # Dynamic check for the target user (case-insensitive)
+                if author.lower() == TARGET_USER.lower():
                     if len(context_queue) >= min_context_window:
                         if cleaned_content not in PLACEHOLDERS:
                             context_values = [msg.split(": ", 1)[1] for msg in context_queue if ": " in msg]
                             all_placeholders = all(val in PLACEHOLDERS for val in context_values)
                             
                             if not all_placeholders:
-                                system_prompt = "You are lustsoul in a Discord chat."
+                                # Inject target user into the system prompt
+                                system_prompt = f"You are {TARGET_USER} in a Discord chat."
                                 user_context = "\n".join(context_queue)
                                 
                                 data_point = {
