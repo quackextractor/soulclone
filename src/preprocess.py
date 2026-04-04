@@ -6,6 +6,10 @@ import yaml
 import random
 from datetime import datetime
 from dotenv import load_dotenv
+from langdetect import detect, DetectorFactory
+
+# Ensure consistent results from langdetect
+DetectorFactory.seed = 0
 
 # Load environment variables early for global access
 load_dotenv()
@@ -64,7 +68,7 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 content = row.get("Content", "").replace('\n', ' ').replace('\r', '')
                 attachments = row.get("Attachments", "").strip()
                 date_str = row.get("Date", "").strip()
-                
+            
                 if not author:
                     continue
                 
@@ -89,7 +93,7 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                     
                 msg_time = parse_date(date_str)
                 
-                # Issue 1 & 3: Group consecutive messages by same author, split by time delta > 1 hr
+                # Group consecutive messages by same author, split by time delta > 1 hr
                 if grouped_messages:
                     last_msg = grouped_messages[-1]
                     time_delta_sec = (msg_time - last_msg['time']).total_seconds() if msg_time and last_msg['time'] else 0
@@ -115,7 +119,7 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                     "content": cleaned_content,
                     "time": msg_time
                 })
-                
+               
             # --- Phase 2: Context Queueing & Generation ---
             context_queue = []
             last_time = None
@@ -125,7 +129,7 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 cleaned_content = msg['content']
                 msg_time = msg['time']
                 
-                # Issue 3: Missing Temporal Boundaries (Clear context if > 1 hour)
+                # Missing Temporal Boundaries (Clear context if > 1 hour)
                 if last_time and msg_time:
                     if (msg_time - last_time).total_seconds() > 3600:
                         context_queue.clear()
@@ -136,7 +140,7 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 is_target = author.lower() == TARGET_USER.lower()
                 word_count = len(cleaned_content.split())
                 
-                # Issue 4: Evaluate downsampling before generating pairs OR queuing
+                # Evaluate downsampling before generating pairs
                 skip_due_to_downsampling = False
                 if is_target and word_count < SHORT_WC:
                     if random.random() < DOWNSAMPLE_RATE:
@@ -145,35 +149,62 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 # Target User logic
                 if is_target and not skip_due_to_downsampling:
                     if len(context_queue) >= min_context_window:
-                        if cleaned_content not in PLACEHOLDERS:
+                        
+                        # Strip placeholders from the target response
+                        target_response = cleaned_content
+                        for p in PLACEHOLDERS:
+                            target_response = target_response.replace(p, "").strip()
                             
-                            # Issue 2: Blind Attachment Hallucinations
-                            context_words = " ".join(context_queue).split()
+                        if target_response:  # Proceed only if response isn't empty after stripping
+                            # Calculate placeholder ratio for the context
+                            context_words = []
+                            for c in context_queue:
+                                context_words.extend(c['content'].split())
+                                
                             total_words = len(context_words)
                             placeholder_count = sum(1 for w in context_words if any(p in w for p in PLACEHOLDERS))
-                            
                             placeholder_ratio = placeholder_count / total_words if total_words > 0 else 0
                             all_placeholders = (total_words == placeholder_count) and (total_words > 0)
                             
-                            # Drop if > 50% placeholders or completely entirely placeholders
                             if placeholder_ratio <= 0.5 and not all_placeholders:
-                                system_prompt = f"You are {TARGET_USER} in a Discord chat."
-                                user_context = "\n".join(context_queue)
+                                # Dynamic Language Prompting
+                                lang_hint = ""
+                                try:
+                                    lang = detect(target_response)
+                                    lang_map = {'en': 'English', 'cs': 'Czech', 'de': 'German'}
+                                    if lang in lang_map:
+                                        lang_hint = f" Respond in {lang_map[lang]}."
+                                except Exception:
+                                    pass
+                                    
+                                system_prompt = f"You are {TARGET_USER} in a Discord chat.{lang_hint}"
+                                
+                                # Multi-Turn Chat Formatting
+                                messages = [{"role": "system", "content": system_prompt}]
+                                
+                                for ctx_msg in context_queue:
+                                    role = "assistant" if ctx_msg["author"].lower() == TARGET_USER.lower() else "user"
+                                    content_str = ctx_msg['content']
+                                    
+                                    if role == "user":
+                                        content_str = f"{ctx_msg['author']}: {content_str}"
+                                        
+                                    if messages[-1]["role"] == role:
+                                        messages[-1]["content"] += f"\n{content_str}"
+                                    else:
+                                        messages.append({"role": role, "content": content_str})
+                                        
+                                messages.append({"role": "assistant", "content": target_response})
                                 
                                 data_point = {
-                                    "messages": [
-                                        {"role": "system", "content": system_prompt},
-                                        {"role": "user", "content": user_context},
-                                        {"role": "assistant", "content": cleaned_content}
-                                    ]
+                                    "messages": messages
                                 }
                                 dataset.append(data_point)
                                     
-                # Issue 4 fix: Exclude skipped short messages from the context flow entirely
-                if not skip_due_to_downsampling:
-                    context_queue.append(f"{author}: {cleaned_content}")
-                    if len(context_queue) > max_context_window:
-                        context_queue.pop(0)
+                # ALWAYS append to context queue to maintain chronological flow
+                context_queue.append({"author": author, "content": cleaned_content})
+                if len(context_queue) > max_context_window:
+                    context_queue.pop(0)
 
     except Exception as e:
         print(f"Could not process {filepath}: {e}")
