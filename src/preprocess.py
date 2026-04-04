@@ -11,6 +11,7 @@ UNICODE_SPAM_PATTERN = re.compile(r'[\u1cbc\u200b\u200c\u200d\u200e\u200f\u2028\
 BOT_PATTERN = re.compile(r'#\d{4}$')
 SYSTEM_MSG_PATTERN = re.compile(r'^(Started a call that lasted|Added .* to the group|Left the group|Changed the channel|Pinned a message)', re.IGNORECASE)
 COMMAND_PATTERN = re.compile(r'^([!/?\.\-]|p!|m!|p\|)\w+', re.IGNORECASE)
+PING_PATTERN = re.compile(r'<@&?\d+>|@(everyone|here|[a-zA-Z0-9_.-]+)')
 
 KNOWN_BOTS = {"clyde", "freestuff", "system"}
 PLACEHOLDERS = {"[Attachment]", "[Link]", "[Empty/Reaction]"}
@@ -36,6 +37,10 @@ def extract_pairs_from_csv(filepath, min_context_window=3, max_context_window=5)
                     continue
                     
                 content = UNICODE_SPAM_PATTERN.sub('', content).strip()
+                
+                # Sanitize pings by removing the @ symbol or brackets, leaving just the name
+                content = PING_PATTERN.sub(r'\1', content)
+                content = content.replace('<', '').replace('>', '')
                 
                 if not content and attachments:
                     content = "[Attachment]"
