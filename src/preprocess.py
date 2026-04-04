@@ -25,7 +25,10 @@ UNICODE_SPAM_PATTERN = re.compile(r'[\u1cbc\u200b\u200c\u200d\u200e\u200f\u2028\
 BOT_PATTERN = re.compile(r'#\d{4}$')
 SYSTEM_MSG_PATTERN = re.compile(r'^(Started a call that lasted|Added .* to the group|Left the group|Changed the channel|Pinned a message)', re.IGNORECASE)
 COMMAND_PATTERN = re.compile(r'^([!/?\.\-]|p!|m!|p\|)\w+', re.IGNORECASE)
-PING_PATTERN = re.compile(r'<@&?\d+>|@(everyone|here|[a-zA-Z0-9_.-]+)')
+
+# FIXED: Removed the capture group that caused unmatched group errors
+USER_PING_PATTERN = re.compile(r'<@&?\d+>')
+GENERAL_PING_PATTERN = re.compile(r'@(everyone|here|[a-zA-Z0-9_.-]+)')
 
 TARGET_USER = os.getenv("TARGET_USER", "your_target_username")
 KNOWN_BOTS = set(config["preprocessing"]["known_bots"])
@@ -33,21 +36,20 @@ PLACEHOLDERS = set(config["preprocessing"]["placeholders"])
 MIN_CONTEXT = config["preprocessing"]["min_context_window"]
 MAX_CONTEXT = config["preprocessing"]["max_context_window"]
 
-# Configurable downsampling parameters
+# Configurable downsampling and truncation parameters
 SHORT_WC = config["preprocessing"].get("short_response_word_count", 3)
 DOWNSAMPLE_RATE = config["preprocessing"].get("short_response_downsample_rate", 0.60)
+MAX_MSG_WORDS = 100 # Prevents copypastas from truncating the target response
 
 def parse_date(date_str):
     """Helper to parse common Discord export timestamp formats."""
     if not date_str:
         return None
     try:
-        # Attempt ISO format parsing first
         date_str = date_str.replace('Z', '+00:00')
         return datetime.fromisoformat(date_str)
     except ValueError:
         try:
-            # Fallback for standard naive formats
             clean_str = date_str.split('.')[0].replace('T', ' ')
             return datetime.strptime(clean_str, "%Y-%m-%d %H:%M:%S")
         except Exception:
@@ -77,7 +79,10 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                     continue
                     
                 content = UNICODE_SPAM_PATTERN.sub('', content).strip()
-                content = PING_PATTERN.sub(r'\1', content)
+                
+                # FIXED: Safer ping replacement to avoid re.error: unmatched group
+                content = USER_PING_PATTERN.sub('', content)
+                content = GENERAL_PING_PATTERN.sub(r'\1', content)
                 content = content.replace('<', '').replace('>', '')
                 
                 if not content and attachments:
@@ -88,12 +93,16 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 content = MARKDOWN_LINK_PATTERN.sub(r'\1 [Link]', content)
                 cleaned_content = URL_PATTERN.sub("[Link]", content).strip()
                 
+                # Truncate extremely long messages to protect context window
+                words = cleaned_content.split()
+                if len(words) > MAX_MSG_WORDS:
+                    cleaned_content = " ".join(words[:MAX_MSG_WORDS]) + "..."
+                
                 if SYSTEM_MSG_PATTERN.search(cleaned_content) or COMMAND_PATTERN.search(cleaned_content):
                     continue
                     
                 msg_time = parse_date(date_str)
                 
-                # Group consecutive messages by same author, split by time delta > 1 hr
                 if grouped_messages:
                     last_msg = grouped_messages[-1]
                     time_delta_sec = (msg_time - last_msg['time']).total_seconds() if msg_time and last_msg['time'] else 0
@@ -102,18 +111,15 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                     is_within_time = (time_delta_sec < 3600)
                     
                     if is_same_author and is_within_time:
-                        # Concatenate
                         if last_msg['content'] == "[Empty/Reaction]":
                             last_msg['content'] = cleaned_content
                         elif cleaned_content != "[Empty/Reaction]":
                             last_msg['content'] += f" {cleaned_content}"
                         
-                        # Update time to latest
                         if msg_time:
                             last_msg['time'] = msg_time
                         continue
                         
-                # If not grouping, append new message
                 grouped_messages.append({
                     "author": author,
                     "content": cleaned_content,
@@ -129,7 +135,6 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 cleaned_content = msg['content']
                 msg_time = msg['time']
                 
-                # Missing Temporal Boundaries (Clear context if > 1 hour)
                 if last_time and msg_time:
                     if (msg_time - last_time).total_seconds() > 3600:
                         context_queue.clear()
@@ -140,22 +145,19 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                 is_target = author.lower() == TARGET_USER.lower()
                 word_count = len(cleaned_content.split())
                 
-                # Evaluate downsampling before generating pairs
                 skip_due_to_downsampling = False
                 if is_target and word_count < SHORT_WC:
                     if random.random() < DOWNSAMPLE_RATE:
                         skip_due_to_downsampling = True
 
-                # Target User logic
                 if is_target and not skip_due_to_downsampling:
                     if len(context_queue) >= min_context_window:
                         
-                        # Strip placeholders from the target response
                         target_response = cleaned_content
                         for p in PLACEHOLDERS:
                             target_response = target_response.replace(p, "").strip()
                             
-                        if target_response:  # Proceed only if response isn't empty after stripping
+                        if target_response: 
                             # Calculate placeholder ratio for the context
                             context_words = []
                             for c in context_queue:
@@ -166,20 +168,20 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                             placeholder_ratio = placeholder_count / total_words if total_words > 0 else 0
                             all_placeholders = (total_words == placeholder_count) and (total_words > 0)
                             
+                            # Proceed only if the context isn't overrun with placeholders
                             if placeholder_ratio <= 0.5 and not all_placeholders:
-                                # Dynamic Language Prompting
                                 lang_hint = ""
-                                try:
-                                    lang = detect(target_response)
-                                    lang_map = {'en': 'English', 'cs': 'Czech', 'de': 'German'}
-                                    if lang in lang_map:
-                                        lang_hint = f" Respond in {lang_map[lang]}."
-                                except Exception:
-                                    pass
-                                    
+                                # Only detect language if string is long enough to be accurate
+                                if len(target_response.split()) >= 3:
+                                    try:
+                                        lang = detect(target_response)
+                                        lang_map = {'en': 'English', 'cs': 'Czech', 'de': 'German'}
+                                        if lang in lang_map:
+                                            lang_hint = f" Respond in {lang_map[lang]}."
+                                    except Exception:
+                                        pass
+                                        
                                 system_prompt = f"You are {TARGET_USER} in a Discord chat.{lang_hint}"
-                                
-                                # Multi-Turn Chat Formatting
                                 messages = [{"role": "system", "content": system_prompt}]
                                 
                                 for ctx_msg in context_queue:
@@ -193,15 +195,10 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
                                         messages[-1]["content"] += f"\n{content_str}"
                                     else:
                                         messages.append({"role": role, "content": content_str})
-                                        
+                                            
                                 messages.append({"role": "assistant", "content": target_response})
-                                
-                                data_point = {
-                                    "messages": messages
-                                }
-                                dataset.append(data_point)
+                                dataset.append({"messages": messages})
                                     
-                # ALWAYS append to context queue to maintain chronological flow
                 context_queue.append({"author": author, "content": cleaned_content})
                 if len(context_queue) > max_context_window:
                     context_queue.pop(0)
@@ -213,7 +210,6 @@ def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context
 
 def process_discord_logs():
     source_dir = os.getenv("SOURCE_DIR")
-
     if not source_dir:
         print("Error: SOURCE_DIR not found in .env file.")
         return
@@ -226,7 +222,6 @@ def process_discord_logs():
     output_file = os.path.join(output_dir, config["files"]["dataset"])
 
     dataset = []
-
     for root, dirs, files in os.walk(source_dir):
         for file in files:
             if file.endswith(".csv"):
