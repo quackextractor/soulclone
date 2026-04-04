@@ -32,16 +32,29 @@ GENERAL_PING_PATTERN = re.compile(r'@(everyone|here|[a-zA-Z0-9_.-]+)')
 
 TARGET_USER = os.getenv("TARGET_USER", "your_target_username")
 KNOWN_BOTS = set(config["preprocessing"]["known_bots"])
+IGNORE_USERS = set([u.lower() for u in config["preprocessing"].get("ignore_users", [])])
 PLACEHOLDERS = set(config["preprocessing"]["placeholders"])
 MIN_CONTEXT = config["preprocessing"]["min_context_window"]
 MAX_CONTEXT = config["preprocessing"]["max_context_window"]
-
+MAX_MSG_WORDS = config["preprocessing"].get("max_msg_words", 100)
+MAX_TIME_DELTA = config["preprocessing"].get("max_time_delta_seconds", 3600)
 SHORT_WC = config["preprocessing"].get("short_response_word_count", 3)
 DOWNSAMPLE_RATE = config["preprocessing"].get("short_response_downsample_rate", 0.60)
-MAX_MSG_WORDS = 100 
+DROP_ATTACHMENT_ONLY = config["preprocessing"].get("drop_attachment_only_responses", True)
+MIN_WORDS_LANG_DETECT = config["preprocessing"].get("min_words_for_language_detect", 6)
+LANG_MAP = config["preprocessing"].get("lang_map", {})
 
 # Global map to store ID -> Username
 USER_ID_MAP = {}
+
+# Global stats tracking
+stats = {
+    "total_pairs_processed": 0,
+    "short_responses_kept": 0,
+    "short_responses_dropped": 0,
+    "attachment_only_responses_dropped": 0,
+    "languages_detected": {}
+}
 
 def parse_date(date_str):
     if not date_str: return None
@@ -101,7 +114,8 @@ def extract_pairs_from_csv(filepath):
             
                 if not author: continue
                 author_lower = author.lower()
-                if BOT_PATTERN.search(author) or "bot" in author_lower or author_lower in KNOWN_BOTS:
+                
+                if BOT_PATTERN.search(author) or "bot" in author_lower or author_lower in KNOWN_BOTS or author_lower in IGNORE_USERS:
                     continue
                     
                 content = UNICODE_SPAM_PATTERN.sub('', content).strip()
@@ -128,7 +142,7 @@ def extract_pairs_from_csv(filepath):
                     is_within_time = False
                     if msg_time and last_msg['time']:
                         time_delta_sec = (msg_time - last_msg['time']).total_seconds()
-                        is_within_time = (time_delta_sec < 3600)
+                        is_within_time = (time_delta_sec < MAX_TIME_DELTA)
                     
                     if (last_msg['author'].lower() == author.lower()) and is_within_time:
                         if last_msg['content'] == "[Empty/Reaction]":
@@ -152,7 +166,7 @@ def extract_pairs_from_csv(filepath):
                 raw_content = msg['content']
                 msg_time = msg['time']
                 
-                if last_time and msg_time and (msg_time - last_time).total_seconds() > 3600:
+                if last_time and msg_time and (msg_time - last_time).total_seconds() > MAX_TIME_DELTA:
                     context_queue.clear()
                         
                 if msg_time: last_time = msg_time
@@ -164,23 +178,31 @@ def extract_pairs_from_csv(filepath):
                     target_response = clean_placeholders(raw_content)
                     word_count = len(target_response.split())
                     
-                    # 1. Skip if empty after cleaning or if too long (prevents truncation bias)
+                    # 1. Skip if empty after cleaning or if too long
                     if not target_response or word_count > MAX_MSG_WORDS:
+                        if DROP_ATTACHMENT_ONLY and raw_content in PLACEHOLDERS:
+                            stats["attachment_only_responses_dropped"] += 1
                         context_queue.append({"author": author, "content": raw_content})
                         continue
 
                     # 2. Downsample very short "Assistant" messages
-                    if word_count < SHORT_WC and random.random() < DOWNSAMPLE_RATE:
-                        context_queue.append({"author": author, "content": raw_content})
-                        continue
+                    if word_count < SHORT_WC:
+                        if random.random() < DOWNSAMPLE_RATE:
+                            stats["short_responses_dropped"] += 1
+                            context_queue.append({"author": author, "content": raw_content})
+                            continue
+                        else:
+                            stats["short_responses_kept"] += 1
 
                     if len(context_queue) >= MIN_CONTEXT:
                         lang_hint = ""
-                        if word_count >= 6:
+                        if word_count >= MIN_WORDS_LANG_DETECT:
                             try:
                                 lang = detect(target_response)
-                                lang_map = {'en': 'English', 'cs': 'Czech', 'de': 'German'}
-                                if lang in lang_map: lang_hint = f" Respond in {lang_map[lang]}."
+                                if lang in LANG_MAP: 
+                                    lang_name = LANG_MAP[lang]
+                                    lang_hint = f" Respond in {lang_name}."
+                                    stats["languages_detected"][lang_name] = stats["languages_detected"].get(lang_name, 0) + 1
                             except: pass
                                 
                         messages = [{"role": "system", "content": f"You are {TARGET_USER} in a Discord chat.{lang_hint}"}]
@@ -189,10 +211,9 @@ def extract_pairs_from_csv(filepath):
                             role = "assistant" if ctx_msg["author"].lower() == TARGET_USER.lower() else "user"
                             content_str = ctx_msg['content']
                             
-                            # FIXED: Remove placeholders from previous Assistant messages in context
                             if role == "assistant":
                                 content_str = clean_placeholders(content_str)
-                                if not content_str: continue # Skip context turn if it's now empty
+                                if not content_str: continue 
                             
                             ctx_words = content_str.split()
                             if len(ctx_words) > MAX_MSG_WORDS:
@@ -208,6 +229,7 @@ def extract_pairs_from_csv(filepath):
                                     
                         messages.append({"role": "assistant", "content": target_response})
                         dataset.append({"messages": messages})
+                        stats["total_pairs_processed"] += 1
                 
                 context_queue.append({"author": author, "content": raw_content})
                 if len(context_queue) > MAX_CONTEXT:
@@ -219,11 +241,15 @@ def extract_pairs_from_csv(filepath):
 
 def process_discord_logs():
     source_dir = os.getenv("SOURCE_DIR")
-    if not source_dir: return
+    if not source_dir: 
+        print("SOURCE_DIR not defined in .env")
+        return
+        
     build_global_user_map(source_dir)
     output_dir = config["directories"]["output"]
     os.makedirs(output_dir, exist_ok=True)
     output_file = os.path.join(output_dir, config["files"]["dataset"])
+    summary_file = os.path.join(output_dir, config["files"]["summary"])
 
     dataset = []
     for root, _, files in os.walk(source_dir):
@@ -233,8 +259,13 @@ def process_discord_logs():
 
     with open(output_file, 'w', encoding='utf-8') as f:
         for entry in dataset:
-            f.write(json.dumps(entry) + "\n")
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+            
+    with open(summary_file, 'w', encoding='utf-8') as sf:
+        json.dump(stats, sf, indent=4)
+        
     print(f"Done. {len(dataset)} pairs saved.")
+    print(f"Summary written to {summary_file}.")
 
 if __name__ == "__main__":
     process_discord_logs()
