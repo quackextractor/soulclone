@@ -1,6 +1,7 @@
 import os
 import json
 import random
+import yaml
 from dotenv import load_dotenv
 
 from src.preprocess import extract_pairs_from_csv
@@ -13,9 +14,13 @@ def generate_samples():
         print("Error: SOURCE_DIR not found in .env file.")
         return
 
-    output_dir = "processed"
+    # Load configuration
+    with open("config.yaml", "r", encoding="utf-8") as f:
+        config = yaml.safe_load(f)
+
+    output_dir = config["directories"]["output"]
     os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(output_dir, "samples.jsonl")
+    output_file = os.path.join(output_dir, config["files"]["samples"])
 
     csv_files = []
     for root, dirs, files in os.walk(source_dir):
@@ -27,7 +32,7 @@ def generate_samples():
         print("No CSV files found.")
         return
 
-    target_total_samples = 30
+    target_total_samples = config["sampling"]["target_total_samples"]
     samples_per_file = max(1, target_total_samples // len(csv_files))
 
     dataset = []

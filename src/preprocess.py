@@ -2,7 +2,12 @@ import os
 import csv
 import re
 import json
+import yaml
 from dotenv import load_dotenv
+
+# Load configuration
+with open("config.yaml", "r", encoding="utf-8") as f:
+    config = yaml.safe_load(f)
 
 # Regex patterns globally defined for efficiency
 URL_PATTERN = re.compile(r'http[s]?://\S+')
@@ -13,10 +18,12 @@ SYSTEM_MSG_PATTERN = re.compile(r'^(Started a call that lasted|Added .* to the g
 COMMAND_PATTERN = re.compile(r'^([!/?\.\-]|p!|m!|p\|)\w+', re.IGNORECASE)
 PING_PATTERN = re.compile(r'<@&?\d+>|@(everyone|here|[a-zA-Z0-9_.-]+)')
 
-KNOWN_BOTS = {"clyde", "freestuff", "system"}
-PLACEHOLDERS = {"[Attachment]", "[Link]", "[Empty/Reaction]"}
+KNOWN_BOTS = set(config["preprocessing"]["known_bots"])
+PLACEHOLDERS = set(config["preprocessing"]["placeholders"])
+MIN_CONTEXT = config["preprocessing"]["min_context_window"]
+MAX_CONTEXT = config["preprocessing"]["max_context_window"]
 
-def extract_pairs_from_csv(filepath, min_context_window=3, max_context_window=5):
+def extract_pairs_from_csv(filepath, min_context_window=MIN_CONTEXT, max_context_window=MAX_CONTEXT):
     """Reads a single CSV and returns a list of cleaned JSONL context pairs."""
     dataset = []
     try:
@@ -91,9 +98,9 @@ def process_discord_logs():
         print("Error: SOURCE_DIR not found in .env file.")
         return
 
-    output_dir = "processed"
+    output_dir = config["directories"]["output"]
     os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(output_dir, "dataset.jsonl")
+    output_file = os.path.join(output_dir, config["files"]["dataset"])
 
     dataset = []
 

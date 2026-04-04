@@ -1,0 +1,21 @@
+directories:
+  output: "processed"
+
+files:
+  dataset: "dataset.jsonl"
+  samples: "samples.jsonl"
+
+preprocessing:
+  min_context_window: 3
+  max_context_window: 5
+  known_bots:
+    - "clyde"
+    - "freestuff"
+    - "system"
+  placeholders:
+    - "[Attachment]"
+    - "[Link]"
+    - "[Empty/Reaction]"
+
+sampling:
+  target_total_samples: 30
