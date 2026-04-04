@@ -19,7 +19,8 @@ def process_discord_logs():
     url_pattern = re.compile(r'http[s]?://\S+')
     
     dataset = []
-    context_window_size = 4 
+    max_context_window = 5 
+    min_context_window = 3
 
     for root, dirs, files in os.walk(source_dir):
         for file in files:
@@ -34,20 +35,20 @@ def process_discord_logs():
                         for row in reader:
                             author = row.get("Author", "").strip()
                             content = row.get("Content", "").strip()
+                            attachments = row.get("Attachments", "").strip()
                             
                             if not author:
                                 continue
+                            
+                            if not content and attachments:
+                                content = "[Attachment]"
+                            elif not content:
+                                content = "[Empty/Reaction]"
+                                
+                            cleaned_content = url_pattern.sub("[Link]", content).strip()
                                 
                             if author == "lustsoul":
-                                cleaned_content = url_pattern.sub("", content).strip()
-                                
-                                if not cleaned_content:
-                                    context_queue.append(f"{author}: [Attachment]")
-                                    if len(context_queue) > context_window_size:
-                                        context_queue.pop(0)
-                                    continue
-                                    
-                                if context_queue:
+                                if len(context_queue) >= min_context_window:
                                     system_prompt = "You are lustsoul in a Discord chat."
                                     user_context = "\n".join(context_queue)
                                     
@@ -62,9 +63,9 @@ def process_discord_logs():
                                 
                                 context_queue.append(f"{author}: {cleaned_content}")
                             else:
-                                context_queue.append(f"{author}: {content}")
+                                context_queue.append(f"{author}: {cleaned_content}")
                                 
-                            if len(context_queue) > context_window_size:
+                            if len(context_queue) > max_context_window:
                                 context_queue.pop(0)
                 except Exception as e:
                     print(f"Could not process {file}: {e}")
