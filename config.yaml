@@ -40,4 +40,11 @@ preprocessing:
     de: "German"
 
 sampling:
-  target_total_samples: 100
+  target_total_samples: 1500
+  response_distribution:
+    short_max_words: 5
+    short_target_pct: 0.40
+    medium_max_words: 20
+    medium_target_pct: 0.40
+    long_max_words: 999
+    long_target_pct: 0.20

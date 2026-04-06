@@ -4,6 +4,7 @@ import re
 import json
 import yaml
 import random
+import pyzipper
 from datetime import datetime
 from dotenv import load_dotenv
 from langdetect import detect, DetectorFactory
@@ -282,6 +283,20 @@ def process_discord_logs():
         
     print(f"Done. {len(dataset)} pairs saved.")
     print(f"Summary written to {summary_file}.")
+    
+    # Encrypted Zipping execution
+    zip_password = os.getenv("ZIP_PASSWORD")
+    if zip_password:
+        zip_path = os.path.join(output_dir, "processed_dataset.zip")
+        print(f"Securing dataset into encrypted zip: {zip_path}...")
+        try:
+            with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+                zf.pwd = zip_password.encode('utf-8')
+                zf.write(output_file, arcname=config["files"]["dataset"])
+                zf.write(summary_file, arcname=config["files"]["summary"])
+            print("Encrypted zip created successfully.")
+        except Exception as e:
+            print(f"Failed to create encrypted zip: {e}")
 
 if __name__ == "__main__":
     process_discord_logs()
