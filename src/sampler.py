@@ -3,6 +3,11 @@ import random
 import yaml
 import json
 import re
+import pyzipper
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 def generate_samples():
     # Load configuration
@@ -24,7 +29,7 @@ def generate_samples():
     long_pct = dist_config.get("long_target_pct", 0.20)
 
     if not os.path.exists(dataset_file):
-        print(f"Error: {dataset_file} not found. Please run 'preprocess' first to generate the dataset.")
+        print(f"Error: {dataset_file} not found. Please run 'preprocess.py' first.")
         return
 
     # Read preprocessed lines directly
@@ -130,6 +135,73 @@ def generate_samples():
             f.write(line)
 
     print(f"Sampling complete. {len(sampled_lines)} context pairs proportionally balanced and saved to {samples_file}.")
+
+    # --- NEW: Generate Sample Summary Documentation ---
+    print("Generating sample distribution summary...")
+    sample_stats = {
+        "total_samples": len(sampled_lines),
+        "target_distribution": {
+            "short_pct": short_pct,
+            "medium_pct": medium_pct,
+            "long_pct": long_pct
+        },
+        "actual_user_distribution": {}
+    }
+    
+    for line in sampled_lines:
+        try:
+            data = json.loads(line)
+            messages = data.get("messages", [])
+            
+            username = "unknown"
+            for msg in reversed(messages):
+                if msg["role"] == "user":
+                    match = username_pattern.search(msg["content"])
+                    if match:
+                        username = match.group(1)
+                    break
+                    
+            word_count = 0
+            for msg in reversed(messages):
+                if msg["role"] == "assistant":
+                    word_count = len(msg["content"].split())
+                    break
+                    
+            bucket = "long"
+            if word_count <= short_max:
+                bucket = "short"
+            elif word_count <= medium_max:
+                bucket = "medium"
+                
+            if username not in sample_stats["actual_user_distribution"]:
+                sample_stats["actual_user_distribution"][username] = {
+                    "total": 0, "short": 0, "medium": 0, "long": 0
+                }
+                
+            sample_stats["actual_user_distribution"][username]["total"] += 1
+            sample_stats["actual_user_distribution"][username][bucket] += 1
+        except Exception:
+            continue
+
+    sample_summary_file = os.path.join(output_dir, "sample_summary.json")
+    with open(sample_summary_file, 'w', encoding='utf-8') as f:
+        json.dump(sample_stats, f, indent=4)
+        
+    print(f"Sample summary written to {sample_summary_file}.")
+
+    # --- NEW: Zipping Logic moved here from preprocess.py ---
+    zip_password = os.getenv("ZIP_PASSWORD")
+    if zip_password:
+        zip_path = os.path.join(output_dir, "processed_samples.zip")
+        print(f"Securing sampled dataset into encrypted zip: {zip_path}...")
+        try:
+            with pyzipper.AESZipFile(zip_path, 'w', compression=pyzipper.ZIP_DEFLATED, encryption=pyzipper.WZ_AES) as zf:
+                zf.pwd = zip_password.encode('utf-8')
+                zf.write(samples_file, arcname=config["files"]["samples"])
+                zf.write(sample_summary_file, arcname="sample_summary.json")
+            print("Encrypted zip created successfully. Upload this to Google Drive.")
+        except Exception as e:
+            print(f"Failed to create encrypted zip: {e}")
 
 if __name__ == "__main__":
     generate_samples()
