@@ -6,13 +6,10 @@ import yaml
 import random
 import sqlite3
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
 from dotenv import load_dotenv
 from tqdm import tqdm
-from langdetect import detect, DetectorFactory
-
-# Ensure consistent results from langdetect
-DetectorFactory.seed = 0
+from lingua import Language, LanguageDetectorBuilder
 
 # Load environment variables
 load_dotenv()
@@ -50,6 +47,21 @@ LANG_MAP = config["preprocessing"].get("lang_map", {})
 # Language detection mode: A (None), B (Summary only), C (Summary + Hints)
 LANG_MODE = config["preprocessing"].get("language_detection_mode", "B").upper()
 
+# --- NEW: Dynamic Lingua Language Builder ---
+supported_languages = []
+for lang_name in LANG_MAP.values():
+    try:
+        # Map config strings (e.g. "English") to lingua.Language.ENGLISH
+        supported_languages.append(getattr(Language, lang_name.upper()))
+    except AttributeError:
+        print(f"Warning: '{lang_name}' from config is not a valid Lingua language enum.")
+
+if supported_languages:
+    detector = LanguageDetectorBuilder.from_languages(*supported_languages).build()
+else:
+    # Fallback if config is empty or invalid
+    detector = LanguageDetectorBuilder.from_all_languages().build()
+
 # Initialize an in-memory SQLite database for high-speed User ID mapping
 conn = sqlite3.connect(':memory:')
 cursor = conn.cursor()
@@ -70,12 +82,15 @@ stats = {
 def parse_date(date_str):
     if not date_str: return None
     try:
+        # Force strict UTC awareness
         date_str = date_str.replace('Z', '+00:00')
-        return datetime.fromisoformat(date_str)
+        dt = datetime.fromisoformat(date_str)
+        return dt.astimezone(timezone.utc)
     except ValueError:
         try:
             clean_str = date_str.split('.')[0].replace('T', ' ')
-            return datetime.strptime(clean_str, "%Y-%m-%d %H:%M:%S")
+            dt = datetime.strptime(clean_str, "%Y-%m-%d %H:%M:%S")
+            return dt.replace(tzinfo=timezone.utc)
         except Exception:
             return None
 
@@ -104,7 +119,7 @@ def build_user_map_sqlite(csv_files):
     cursor.execute("SELECT COUNT(*) FROM users")
     print(f"Mapped {cursor.fetchone()[0]} unique users.")
     
-    # NEW: Dump the entire SQLite table into a lightning-fast Python dictionary
+    # Dump the entire SQLite table into a lightning-fast Python dictionary
     cursor.execute("SELECT id, name FROM users")
     USER_ID_MAP_RAM = dict(cursor.fetchall())
 
@@ -215,17 +230,14 @@ def extract_pairs_from_csv(filepath):
                         lang_hint = ""
                         lang_name = "Unknown" # Default assignment
                         
-                        # Use langdetect seamlessly
+                        # Use Lingua seamlessly
                         if LANG_MODE in ["B", "C"] and word_count >= MIN_WORDS_LANG_DETECT:
-                            try:
-                                lang_code = detect(target_response)
-                                if lang_code in LANG_MAP:
-                                    lang_name = LANG_MAP[lang_code]
-                                    stats["languages_detected"][lang_name] = stats["languages_detected"].get(lang_name, 0) + 1
-                                    if LANG_MODE == "C":
-                                        lang_hint = f" Respond in {lang_name}."
-                            except:
-                                pass
+                            detected = detector.detect_language_of(target_response)
+                            if detected:
+                                lang_name = detected.name.capitalize() # Returns 'English', 'German', or 'Czech'
+                                stats["languages_detected"][lang_name] = stats["languages_detected"].get(lang_name, 0) + 1
+                                if LANG_MODE == "C":
+                                    lang_hint = f" Respond in {lang_name}."
                                 
                         messages = [{"role": "system", "content": f"You are {TARGET_USER} in a Discord chat.{lang_hint}"}]
                         
@@ -239,7 +251,7 @@ def extract_pairs_from_csv(filepath):
                             
                             ctx_words = content_str.split()
                             if len(ctx_words) > MAX_MSG_WORDS:
-                                content_str = " ".join(ctx_words[:MAX_MSG_WORDS]) + "..."
+                                continue # Skip adding this bloated message to the context queue
                             
                             content_str = f"[{ctx_msg['author']}]: {content_str}"
                             messages.append({"role": role, "content": content_str})
