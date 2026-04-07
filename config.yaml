@@ -40,7 +40,7 @@ preprocessing:
     de: "German"
 
 sampling:
-  target_total_samples: 1500
+  target_total_samples: 10000
   response_distribution:
     short_max_words: 5
     short_target_pct: 0.40
