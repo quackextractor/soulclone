@@ -7,14 +7,14 @@ files:
   summary: "summary.json"
 
 preprocessing:
-  min_context_window: 3
+  min_context_window: 4  # HARDCODED TO BE 4 or more
   max_context_window: 5
   max_msg_words: 100
   max_time_delta_seconds: 3600
   short_response_word_count: 3
   short_response_downsample_rate: 0.10
   drop_attachment_only_responses: true
-  min_words_for_language_detect: 15
+  min_words_for_language_detect: 3  # CHANGED: Allows short/medium messages to be sorted into correct language buckets
   # Options: 
   # A: Disable language detection entirely
   # B: Track in summary.json only (default)

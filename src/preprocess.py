@@ -192,15 +192,15 @@ def extract_pairs_from_csv(filepath):
 
                     if len(context_queue) >= MIN_CONTEXT:
                         lang_hint = ""
+                        lang_name = "Unknown" # Default assignment
+                        
                         # Only proceed with language detection if mode is B or C
                         if LANG_MODE in ["B", "C"] and word_count >= MIN_WORDS_LANG_DETECT:
                             try:
                                 lang = detect(target_response)
                                 if lang in LANG_MAP:
                                     lang_name = LANG_MAP[lang]
-                                    # Update stats for both B and C
                                     stats["languages_detected"][lang_name] = stats["languages_detected"].get(lang_name, 0) + 1
-                                    # Only add the instruction hint if mode is C
                                     if LANG_MODE == "C":
                                         lang_hint = f" Respond in {lang_name}."
                             except:
@@ -212,6 +212,7 @@ def extract_pairs_from_csv(filepath):
                             role = "assistant" if ctx_msg["author"].lower() == TARGET_USER.lower() else "user"
                             content_str = ctx_msg['content']
                             
+                            # Clean placeholders for BOTH user and assistant
                             content_str = clean_placeholders(content_str)
                             if not content_str: continue 
                             
@@ -220,12 +221,16 @@ def extract_pairs_from_csv(filepath):
                                 content_str = " ".join(ctx_words[:MAX_MSG_WORDS]) + "..."
                             
                             content_str = f"[{ctx_msg['author']}]: {content_str}"
-                            
                             messages.append({"role": role, "content": content_str})
                                     
                         formatted_target = f"[{TARGET_USER}]: {target_response}"
                         messages.append({"role": "assistant", "content": formatted_target})
-                        dataset.append({"messages": messages})
+                        
+                        # Store the language tag for the multi-dimensional sampler
+                        dataset.append({
+                            "language": lang_name,
+                            "messages": messages
+                        })
                         stats["total_pairs_processed"] += 1
                 
                 context_queue.append({"author": author, "content": raw_content})
