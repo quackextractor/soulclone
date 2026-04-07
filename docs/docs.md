@@ -1,64 +1,100 @@
-# Project Documentation: lustsoul Discord Persona Fine Tuning
+# Documentation & Run Guide
 
-## 1. Project Overview
-This document serves as the comprehensive guide and historical log for the project aimed at fine tuning a Large Language Model (LLM). The primary objective is to clone the conversational style, timing, and behavioral patterns of the Discord user "lustsoul" using exported CSV chat logs from direct messages, group chats, and server channels.
+This document provides in-depth instructions on how to configure and execute each phase of the Discord Persona Pipeline.
 
-## 2. Core Decisions and Methodology
-A key behavioral pattern was identified during the initial data review: the target persona frequently interrupts ongoing conversations to introduce new topics or request voice chats.
+---
 
-**Strategic Decision: Option 1 (Authenticity)**
-* The project will proceed with preserving the raw context of these interruptions in the training data rather than filtering them out.
-* The resulting model will prioritize acting exactly like the user, which includes ignoring the current topic to ask for voice chats or send unrelated messages when the chat environment matches those historical conditions.
+## 1. Configuration Setup
 
-**Technical Stack:**
-* **Environment:** Google Colab (T4 GPU)
-* **Training Method:** QLoRA (Low Rank Adaptation) with 4 bit quantization
-* **Libraries:** Hugging Face `transformers`, `datasets`, `peft`, `trl`, and `bitsandbytes`
-* **Data Format:** JSONL (Context pairs consisting of 3 to 5 previous messages followed by the target "lustsoul" response)
+Before running any scripts, you must configure your local environment and ruleset.
 
-***
+### `.env`
+Create a `.env` file in the root directory (use `.env.example` as a template).
+* `SOURCE_DIR`: The absolute path to the directory containing your exported Discord `.csv` files.
+* `TARGET_USER`: The username (without the `#1234` discriminator) of the person you are cloning.
+* `ZIP_PASSWORD`: A secure password. This is used by `sampler.py` to encrypt your final dataset, ensuring that sensitive chat logs cannot be intercepted if uploaded to cloud storage.
 
-## 3. Interaction Log
+### `config.yaml`
+This file controls the behavior of the data extraction logic.
+* **`preprocessing`**:
+    * `max_context_window`: How many previous messages to include as context for the model.
+    * `max_time_delta_seconds`: If a message is sent this many seconds after the previous one, it breaks the context chain.
+    * `language_detection_mode`: Set to `"C"` to actively inject hints like "Respond in German." into the system prompt.
+* **`sampling`**:
+    * `target_total_samples`: How many final conversations to extract for training (e.g., `100`).
+    * `response_distribution`: Allows you to mandate a specific percentage of short vs. long responses (e.g., force 40% of the dataset to be short responses to prevent the LLM from becoming overly verbose).
 
-### 3.1. Interaction 1: Initial Setup
+---
 
-**User Prompt:**
-The user requested instructions on how to fine tune an LLM in Google Colab to mimic the "lustsoul" persona using thousands of CSV entries. A sample of the provided Direct Messages CSV included:
-* Headers for AuthorID, Author, Date, Content, Attachments, and Reactions.
-* A message from "lustsoul" stating they could not find something on their phone and would send it later.
-* A reply from "hiracan." saying "no problem".
-* A subsequent message from "lustsoul" containing a link and the following reactions: `:flushed:` (1), `:hugging:` (1), `:handshake:` (1).
+## 2. Preprocessing Data
 
-**Assistant Response:**
-The assistant provided a clear step-by-step guide to achieve this:
+**File:** `preprocess.py`
 
-* **Step 1: Clean and Format Your Data**
-    * Language models need context to understand how to reply.
-    * Filter out rows where the content is empty but has an attachment link, unless the goal is to learn link spamming.
-    * When finding a message by "lustsoul", grab the previous 3 to 5 messages to use as context.
-    * Format this data into a JSONL file.
-* **Step 2: Set Up Google Colab**
-    * Create a new notebook and select a T4 GPU.
-    * Install the required libraries: `transformers`, `datasets`, `peft`, `trl`, `bitsandbytes`, and `accelerate`.
-* **Step 3: Load the Data and Model**
-    * Use a quantized model (like Llama-3-8B or Mistral-7B) to fit within free GPU limits.
-    * Configure 4-bit quantization to save memory.
-* **Step 4: Configure LoRA and Train**
-    * Set up LoRA (Low-Rank Adaptation) to train the model quickly by updating only a small portion of its weights.
-    * Initialize the `SFTTrainer` and start training.
-* **Step 5: Test Your Fine-Tuned Model**
-    * Test the model in Colab to verify it picked up catchphrases, text faces like ":3", and general timing.
-    * Ensure Discord user IDs and media links are filtered out during cleaning to avoid hallucinated links.
+This script handles the heavy lifting of parsing gigabytes of raw Discord logs. It utilizes an in-memory SQLite database via Pandas to rapidly map numerical user pings (`<@123456789>`) back to readable usernames.
 
-### 3.2. Interaction 2: Addressing Off-Topic Behavior
+**How to run:** Ensure your virtual environment is active (via `setup.bat` ), then run:
+```bash
+python preprocess.py
+```
 
-**User Prompt:**
-The user noted that in one of the provided examples, their response was completely unrelated to the ongoing conversation.
+**Expected Output:**
+* Parses all CSVs in `SOURCE_DIR`.
+* Outputs a large `processed/dataset.jsonl` containing every valid conversational pair.
+* Outputs `processed/summary.json` with global statistics on dropped messages, kept data, and detected languages.
 
-**Assistant Response:**
-The assistant confirmed this observation and explained how language models learn:
-* In the first example, the user directly answered a joke setup.
-* In the second example, the user changed the topic entirely to ask for a voice chat.
-* The AI does not inherently understand "staying on topic" and only learns sequence prediction.
-* **Option 1:** Leave the interruptions in for authenticity, resulting in an AI that occasionally interrupts conversations for voice chats.
-* **Option 2:** Filter out "meta" messages (like "vc?", "brb") to force the AI to strictly reply to the subject at hand.
+---
+
+## 3. Sampling & Encryption
+
+**File:** `sampler.py`
+
+Training on raw chat logs often ruins LLMs because users naturally send a disproportionate amount of one-word replies like "yeah" or "lol". This script uses byte-offset reservoir scanning to sample the massive `dataset.jsonl` without crashing your RAM. It balances minority languages and strictly enforces the word-count distributions defined in `config.yaml`.
+
+**How to run:**
+```bash
+python sampler.py
+```
+
+**Expected Output:**
+* Generates `processed/samples.jsonl`.
+* Creates `processed/sample_summary.json` showing exactly who the model is talking to in the sample and the breakdown of lengths.
+* **Crucially:** Outputs `processed/processed_samples.zip`, fully encrypted with AES-256 using the password from your `.env`. This zip is what you upload to Google Drive for the Colab notebooks.
+
+---
+
+## 4. Model Training (Google Colab)
+
+**File:** `clone-training.ipynb`
+
+This notebook uses **Unsloth** to shrink the Mistral NeMo 12B model down into 4-bit quantization, allowing it to fit natively on a free Google Colab T4 GPU. It is configured for a single, aggressive epoch to prevent catastrophic forgetting while rapidly absorbing the persona.
+
+**How to run:**
+1. Upload your `processed_samples.zip` to Google Drive or obtain a direct shareable link.
+2. Open `clone-training.ipynb` in Google Colab.
+3. In the first configuration cell, paste your `GDRIVE_SHARED_LINK` and your `DECRYPTION_KEY` (the `ZIP_PASSWORD` you used).
+4. Enter your `ENCRYPTION_KEY`. This ensures the resulting model adapter weights are encrypted when saved.
+5. Run all cells (`Runtime -> Run All`).
+
+**Expected Output:**
+* An Unsloth-optimized QLoRA adapter zipped and encrypted as `final_adapter_encrypted.zip` saved straight to your Google Drive.
+
+---
+
+## 5. Live Inference & Chat (Google Colab)
+
+**File:** `chat-inference.ipynb`
+
+This notebook allows you to talk to your freshly trained persona in real time. It utilizes native C-optimized stop strings to prevent the model from impersonating the user, and uses a threaded streamer to yield tokens to the screen instantly.
+
+**How to run:**
+1. Open `chat-inference.ipynb` in Google Colab.
+2. Fill out the configuration block with the `GDRIVE_SHARED_LINK` pointing to your `final_adapter_encrypted.zip` and the `DECRYPTION_KEY`.
+3. Set the `CLONE_NAME` to match your target.
+4. Run all cells.
+
+**In-Chat Commands:**
+Once the terminal starts, you can use these commands on the fly:
+* `/temp 0.8` - Adjust hallucination temperature dynamically.
+* `/pen 1.15` - Adjust repetition penalty dynamically.
+* `/switch <gdrive_link> [password]` - Hot-swap the persona adapter without reloading the base 12B model.
+* `/benchmark` - Run the LLM through a suite of stored custom questions and automatically save the dialogue logs to your Google Drive.
