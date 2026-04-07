@@ -1,39 +1,43 @@
-# Discord Persona Fine-Tuning
+# Discord Persona Fine-Tuning Pipeline
 
 ## Overview
-This project provides a data preprocessing pipeline designed to fine-tune a Large Language Model (LLM) to clone the conversational style, timing, and behavioral patterns of any specific target Discord user. By using exported CSV chat logs from direct messages, group chats, and server channels, this tool converts raw Discord history into a token-safe JSONL dataset ready for model training.
+This project provides an end-to-end data preprocessing and training pipeline designed to fine-tune a Large Language Model (LLM) to clone the conversational style, timing, and behavioral patterns of any specific target Discord user.
 
-A core feature of the resulting dataset is authenticity: the tool preserves the user's habit of occasionally interrupting ongoing conversations to change the topic or request voice chats, assuming that is present in their historical data.
+By using exported CSV chat logs from direct messages, group chats, and server channels, this tool converts raw Discord history into a token-safe, securely encrypted JSONL dataset ready for aggressive 1-epoch model training. A core feature of the resulting dataset is authenticity: the tool preserves the user's conversational pacing, handles multi-lingual detection natively, and natively maps Discord user IDs to readable names.
 
 ## Technical Stack
-* **Environment:** Designed for fine-tuning via Google Colab (T4 GPU).
-* **Training Method:** QLoRA (Low Rank Adaptation) with 4-bit quantization.
-* **Expected Base Models:** **Mistral NeMo 12B** (Highly recommended over standard Llama-3-8B or Mistral-7B due to its superior 128k context window and its advanced capability to seamlessly code-switch between languages like English, Czech, and German).
-* **Libraries:** Hugging Face `transformers`, `datasets`, `peft`, `trl`, and `bitsandbytes`.
+* **Data Processing Pipeline:** Python 3.8+, SQLite (in-memory mapping), Pandas, Lingua (Language Detection), PyZipper (AES-256 Encryption).
+* **Training Environment:** Designed for Google Colab (Free T4 GPU 15GB VRAM).
+* **Training Backend:** **Unsloth** (Custom Triton kernels, 2x faster, 50% less VRAM), Hugging Face `transformers`, `trl`, `peft`.
+* **Target Base Model:** **Mistral NeMo 12B** (Highly recommended due to its native 128k context window and advanced capability to seamlessly code-switch between languages).
 
-## Setup Instructions
-1. Ensure you have Python 3.8+ installed.
-2. Run the included setup script to generate your virtual environment and install dependencies:
+## Quick Start & Setup
+
+1. **Prerequisites:** Ensure you have Python 3.8+ installed and accessible in your system PATH.
+2. **Environment Setup:** Run the included setup script to automatically create your virtual environment  and install all necessary dependencies:
    ```bat
    setup.bat
    ```
-   *(Alternatively, manually create a `.venv`, activate it, and run `pip install -r requirements.txt`)*
-3. Copy `.env.example` to a new file named `.env`. Update `SOURCE_DIR` to point to your Discord chat CSV exports, and **crucially**, update the `TARGET_USER` field to match the exact Discord username you want to clone.
-4. Open `config.yaml` if you wish to adjust context window sizes, placeholder tags, and sampling limits.
+3. **Configuration:** * Copy `.env.example` to a new file named `.env`.
+   * Update `SOURCE_DIR` to point to the folder containing your Discord chat CSV exports.
+   * Update the `TARGET_USER` field to match the exact Discord username you want to clone.
+   * Set a strong `ZIP_PASSWORD` to ensure your resulting datasets are encrypted.
+4. **Advanced Settings:** Open `config.yaml` if you wish to adjust context window sizes, sampling distributions, or language detection parameters.
 
-## Usage
-The unified CLI tool `main.py` serves as the primary entry point.
+## Pipeline Architecture
 
-**Available Commands:**
-* `python main.py preprocess` - Process raw Discord CSV exports into a fine-tuning dataset JSONL file.
-* `python main.py sample` - Extract a small, token-safe JSONL sample from source files for debugging.
+This project is broken into four distinct parts. See `docs.md` for detailed configuration and execution instructions for each phase.
 
-You can also run `python main.py preprocess --sample` to immediately generate samples right after building the main dataset.
+1. **Preprocess (`preprocess.py`):** Parses gigabytes of CSV logs, resolves user mentions, cleans spam, detects languages, and generates conversational context windows into a master `dataset.jsonl` file.
+2. **Sample (`sampler.py`):** Extracts a balanced, memory-optimized subset of the master dataset, ensuring fair distribution of short/medium/long responses and diverse language representation. Packages the output into a secure AES-256 zip.
+3. **Train (`clone-training.ipynb`):** A highly optimized Google Colab notebook utilizing Unsloth to forcefully train the target persona into Mistral NeMo 12B in a single epoch.
+4. **Chat (`chat-inference.ipynb`):** A real-time inference notebook with dynamic streaming, live slider adjustments for temperature/penalty, and on-the-fly adapter hot-swapping.
+
+---
 
 ## Legal & Disclaimer
 
-**Non-Affiliation** 
-This project is an independent, unofficial tool and is not affiliated, associated, authorized, endorsed by, or in any way officially connected with Discord Inc., its subsidiaries, or its related companies. "Discord" and its related brand indicia are the property and trademarks of Discord Inc..
+**Non-Affiliation** This project is an independent, unofficial tool and is not affiliated, associated, authorized, endorsed by, or in any way officially connected with Discord Inc., its subsidiaries, or its related companies. "Discord" and its related brand indicia are the property and trademarks of Discord Inc.
 
 **Terms of Service Compliance**
 Users of this tool are solely responsible for ensuring their use complies with Discord's Terms of Service and all applicable laws, rules, and regulations. Please be aware that Discord's terms strictly prohibit scraping their services without written consent. Furthermore, users are prohibited from selling, licensing, or otherwise commercializing content or data obtained from Discord's services. You must not use this tool or the resulting datasets to infringe upon anyone else's intellectual property or proprietary rights.
@@ -44,13 +48,11 @@ This tool is designed to process exported chat history locally. You are solely r
 **Limitation of Liability**
 This software is provided "AS IS" for educational and research purposes. The creators and contributors of this project take no responsibility and assume no liability for how you choose to use this tool, the data generated by it, or any potential actions taken by Discord against your account for Terms of Service violations.
 
-Here is a credits section you can add to your `README.md`, ideally placed right before or after the legal notice:
-
 ***
 
 ## Credits & Acknowledgements
 
 **DiscordChatExporter**
-This project requires exported Discord chat logs to function. I acknowledge and recommend [DiscordChatExporter](https://github.com/Tyrrrz/DiscordChatExporter) created by [Tyrrrz](https://github.com/Tyrrrz) as an excellent tool for acquiring your personal chat history data. 
+This project requires exported Discord chat logs to function. I acknowledge and recommend [DiscordChatExporter](https://github.com/Tyrrrz/DiscordChatExporter) created by [Tyrrrz](https://github.com/Tyrrrz) as an excellent tool for acquiring your personal chat history data.
 
 *Please note: This fine-tuning pipeline is an independent project and is not affiliated with, endorsed by, or maintained by the creators of DiscordChatExporter.*
