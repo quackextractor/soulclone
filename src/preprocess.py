@@ -4,13 +4,20 @@ import re
 import json
 import yaml
 import random
+import sqlite3
+import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
-from langdetect import detect, DetectorFactory
 from tqdm import tqdm
 
-# Ensure consistent results from langdetect
-DetectorFactory.seed = 0
+# Attempt to load fasttext for high-speed language detection
+try:
+    import fasttext
+    fasttext.FastText.eprint = lambda x: None # Suppress warnings
+    lang_model = fasttext.load_model('lid.176.ftz')
+except Exception:
+    lang_model = None
+    print("Warning: fasttext or 'lid.176.ftz' not found. Language detection will fall back to Unknown.")
 
 # Load environment variables
 load_dotenv()
@@ -48,8 +55,10 @@ LANG_MAP = config["preprocessing"].get("lang_map", {})
 # Language detection mode: A (None), B (Summary only), C (Summary + Hints)
 LANG_MODE = config["preprocessing"].get("language_detection_mode", "B").upper()
 
-# Global map to store ID -> Username
-USER_ID_MAP = {}
+# Initialize an in-memory SQLite database for high-speed User ID mapping
+conn = sqlite3.connect(':memory:')
+cursor = conn.cursor()
+cursor.execute("CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT)")
 
 # Global stats tracking
 stats = {
@@ -72,34 +81,36 @@ def parse_date(date_str):
         except Exception:
             return None
 
-def build_global_user_map(source_dir):
-    """Phase 0: Scans all CSVs to build a dictionary of UserIDs to Names."""
-    print("Building Username Map...")
-    
-    csv_files = []
-    for root, _, files in os.walk(source_dir):
-        for file in files:
-            if file.endswith(".csv"):
-                csv_files.append(os.path.join(root, file))
-                
-    for filepath in tqdm(csv_files, desc="Mapping Users", unit="file"):
+def build_user_map_sqlite(csv_files):
+    """Phase 0: Ultra-fast Pandas scan to build SQLite mapping."""
+    print("Building Username Map (SQLite/Pandas)...")
+    for filepath in tqdm(csv_files, desc="Indexing Users", unit="file"):
         try:
-            with open(filepath, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    author_name = row.get("Author", "").strip()
-                    author_id = row.get("AuthorID") or row.get("User ID")
-                    if author_name and author_id:
-                        clean_name = author_name.split('#')[0]
-                        USER_ID_MAP[str(author_id)] = clean_name
-        except Exception: continue
-    print(f"Mapped {len(USER_ID_MAP)} unique users.")
+            df = pd.read_csv(filepath, usecols=lambda c: c in ["Author", "AuthorID", "User ID"], dtype=str)
+            if df.empty: continue
+            
+            id_col = "AuthorID" if "AuthorID" in df.columns else "User ID"
+            if id_col not in df.columns or "Author" not in df.columns: continue
+            
+            df = df.dropna(subset=[id_col, "Author"])
+            df["Author"] = df["Author"].apply(lambda x: str(x).split('#')[0].strip())
+            
+            records = df[[id_col, "Author"]].values.tolist()
+            cursor.executemany("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", records)
+        except Exception: 
+            continue
+            
+    conn.commit()
+    cursor.execute("SELECT COUNT(*) FROM users")
+    print(f"Mapped {cursor.fetchone()[0]} unique users.")
 
 def resolve_mentions(content):
-    """Replaces <@12345> with @Name using the map."""
+    """Replaces <@12345> with @Name using the SQLite map."""
     def replace_match(match):
         uid = match.group(1)
-        return f"@{USER_ID_MAP.get(uid, 'User')}"
+        cursor.execute("SELECT name FROM users WHERE id=?", (uid,))
+        row = cursor.fetchone()
+        return f"@{row[0]}" if row else "@User"
     return USER_PING_PATTERN.sub(replace_match, content)
 
 def clean_placeholders(text):
@@ -152,13 +163,14 @@ def extract_pairs_from_csv(filepath):
                         is_within_time = (time_delta_sec < MAX_TIME_DELTA)
                     
                     if (last_msg['author'].lower() == author.lower()) and is_within_time:
-                        last_msg['content'] += f" \n{cleaned_content}" 
+                        # OPTIMIZATION: List append instead of string concatenation
+                        last_msg['content'].append(cleaned_content) 
                         if msg_time: last_msg['time'] = msg_time
                         continue
                         
                 grouped_messages.append({
                     "author": author.split('#')[0],
-                    "content": cleaned_content,
+                    "content": [cleaned_content], # Store as list for optimization
                     "time": msg_time
                 })
                
@@ -167,7 +179,7 @@ def extract_pairs_from_csv(filepath):
             
             for msg in grouped_messages:
                 author = msg['author']
-                raw_content = msg['content']
+                raw_content = " \n".join(msg['content']) # String join optimization applied here
                 msg_time = msg['time']
                 
                 if last_time and msg_time and (msg_time - last_time).total_seconds() > MAX_TIME_DELTA:
@@ -200,12 +212,15 @@ def extract_pairs_from_csv(filepath):
                         lang_hint = ""
                         lang_name = "Unknown" # Default assignment
                         
-                        # Only proceed with language detection if mode is B or C
-                        if LANG_MODE in ["B", "C"] and word_count >= MIN_WORDS_LANG_DETECT:
+                        # Use fasttext if available and required
+                        if LANG_MODE in ["B", "C"] and word_count >= MIN_WORDS_LANG_DETECT and lang_model:
                             try:
-                                lang = detect(target_response)
-                                if lang in LANG_MAP:
-                                    lang_name = LANG_MAP[lang]
+                                text_for_lang = target_response.replace('\n', ' ')
+                                pred = lang_model.predict(text_for_lang)
+                                lang_code = pred[0][0].replace('__label__', '')
+                                
+                                if lang_code in LANG_MAP:
+                                    lang_name = LANG_MAP[lang_code]
                                     stats["languages_detected"][lang_name] = stats["languages_detected"].get(lang_name, 0) + 1
                                     if LANG_MODE == "C":
                                         lang_hint = f" Respond in {lang_name}."
@@ -253,17 +268,18 @@ def process_discord_logs():
         print("SOURCE_DIR not defined in .env")
         return
         
-    build_global_user_map(source_dir)
-    output_dir = config["directories"]["output"]
-    os.makedirs(output_dir, exist_ok=True)
-    output_file = os.path.join(output_dir, config["files"]["dataset"])
-    summary_file = os.path.join(output_dir, config["files"]["summary"])
-
     csv_files = []
     for root, _, files in os.walk(source_dir):
         for file in files:
             if file.endswith(".csv"):
                 csv_files.append(os.path.join(root, file))
+                
+    build_user_map_sqlite(csv_files)
+    
+    output_dir = config["directories"]["output"]
+    os.makedirs(output_dir, exist_ok=True)
+    output_file = os.path.join(output_dir, config["files"]["dataset"])
+    summary_file = os.path.join(output_dir, config["files"]["summary"])
 
     dataset = []
     for filepath in tqdm(csv_files, desc="Processing Message Logs", unit="file"):

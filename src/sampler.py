@@ -33,43 +33,48 @@ def generate_samples():
         print(f"Error: {dataset_file} not found. Please run 'preprocess.py' first.")
         return
 
-    # Count total lines for the progress bar
+    # Count total lines rapidly in binary mode for the progress bar
     print("Preparing to load dataset...")
-    with open(dataset_file, 'r', encoding='utf-8') as f:
+    with open(dataset_file, 'rb') as f:
         total_lines = sum(1 for _ in f)
 
-    # Read preprocessed dataset
-    dataset = []
-    with open(dataset_file, 'r', encoding='utf-8') as f:
-        for line in tqdm(f, total=total_lines, desc="Loading Preprocessed Data", unit="lines"):
-            if line.strip():
-                dataset.append(json.loads(line))
-
-    # Multi-Dimensional Bucketing: Group by Language, then by Length
+    # OPTIMIZATION: Byte-Offset Reservoir Scanning (0% RAM Crash Risk)
     lang_buckets = {}
-    print("Categorizing and bucketing data...")
-    for item in tqdm(dataset, desc="Bucketing", unit="items"):
-        lang = item.get("language", "Unknown")
-        if lang not in lang_buckets:
-            lang_buckets[lang] = {"short": [], "medium": [], "long": []}
-        
-        messages = item.get("messages", [])
-        word_count = 0
-        
-        # Calculate length of the target assistant response
-        for msg in reversed(messages):
-            if msg["role"] == "assistant":
-                content_clean = re.sub(r'^\[.*?\]:\s*', '', msg["content"])
-                word_count = len(content_clean.split())
-                break
-                
-        bucket = "long"
-        if word_count <= short_max:
-            bucket = "short"
-        elif word_count <= medium_max:
-            bucket = "medium"
+    print("Categorizing and bucketing data (Memory-Optimized)...")
+    
+    with open(dataset_file, 'rb') as f:
+        pbar = tqdm(total=total_lines, desc="Bucketing Offsets", unit="lines")
+        while True:
+            offset = f.tell()
+            line = f.readline()
+            if not line: break
+            pbar.update(1)
             
-        lang_buckets[lang][bucket].append(item)
+            if not line.strip(): continue
+            
+            item = json.loads(line.decode('utf-8'))
+            lang = item.get("language", "Unknown")
+            if lang not in lang_buckets:
+                lang_buckets[lang] = {"short": [], "medium": [], "long": []}
+            
+            messages = item.get("messages", [])
+            word_count = 0
+            
+            # Calculate length of the target assistant response
+            for msg in reversed(messages):
+                if msg["role"] == "assistant":
+                    content_clean = re.sub(r'^\[.*?\]:\s*', '', msg["content"])
+                    word_count = len(content_clean.split())
+                    break
+                    
+            bucket = "long"
+            if word_count <= short_max:
+                bucket = "short"
+            elif word_count <= medium_max:
+                bucket = "medium"
+                
+            lang_buckets[lang][bucket].append(offset)
+        pbar.close()
 
     # Calculate fair quotas per language
     lang_counts = {lang: sum(len(b) for b in buckets.values()) for lang, buckets in lang_buckets.items()}
@@ -99,7 +104,7 @@ def generate_samples():
             remaining_target = 0
             break
 
-    sampled_data = []
+    sampled_offsets = []
     sample_stats = {
         "total_samples": 0,
         "language_distribution": {},
@@ -151,11 +156,19 @@ def generate_samples():
             random.shuffle(pool)
             lang_sampled.extend(pool[:long_deficit])
             
-        sampled_data.extend(lang_sampled)
+        sampled_offsets.extend(lang_sampled)
         sample_stats["language_distribution"][lang] = len(lang_sampled)
 
-    # Shuffle the final compiled dataset so languages aren't clustered
-    random.shuffle(sampled_data)
+    # Shuffle the final compiled dataset offsets so languages aren't clustered
+    random.shuffle(sampled_offsets)
+
+    # Re-open the file and extract exactly the samples we need (Pass 2)
+    sampled_data = []
+    with open(dataset_file, 'rb') as f:
+        for offset in tqdm(sampled_offsets, desc="Extracting Selected Samples"):
+            f.seek(offset)
+            line = f.readline()
+            sampled_data.append(json.loads(line.decode('utf-8')))
 
     # Write out data
     print(f"Preparing to write {len(sampled_data)} samples to disk...")
