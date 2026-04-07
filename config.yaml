@@ -12,7 +12,7 @@ preprocessing:
   max_msg_words: 100
   max_time_delta_seconds: 3600
   short_response_word_count: 3
-  short_response_downsample_rate: 0.80
+  short_response_downsample_rate: 0.10
   drop_attachment_only_responses: true
   min_words_for_language_detect: 15
   # Options: 
