@@ -60,6 +60,9 @@ conn = sqlite3.connect(':memory:')
 cursor = conn.cursor()
 cursor.execute("CREATE TABLE users (id TEXT PRIMARY KEY, name TEXT)")
 
+# Global dictionary for ultra-fast RAM lookups
+USER_ID_MAP_RAM = {}
+
 # Global stats tracking
 stats = {
     "total_pairs_processed": 0,
@@ -82,7 +85,9 @@ def parse_date(date_str):
             return None
 
 def build_user_map_sqlite(csv_files):
-    """Phase 0: Ultra-fast Pandas scan to build SQLite mapping."""
+    """Phase 0: Ultra-fast Pandas scan to build SQLite mapping, then dump to RAM."""
+    global USER_ID_MAP_RAM
+    
     print("Building Username Map (SQLite/Pandas)...")
     for filepath in tqdm(csv_files, desc="Indexing Users", unit="file"):
         try:
@@ -103,14 +108,17 @@ def build_user_map_sqlite(csv_files):
     conn.commit()
     cursor.execute("SELECT COUNT(*) FROM users")
     print(f"Mapped {cursor.fetchone()[0]} unique users.")
+    
+    # NEW: Dump the entire SQLite table into a lightning-fast Python dictionary
+    cursor.execute("SELECT id, name FROM users")
+    USER_ID_MAP_RAM = dict(cursor.fetchall())
 
 def resolve_mentions(content):
-    """Replaces <@12345> with @Name using the SQLite map."""
+    """Replaces <@12345> with @Name using the RAM map."""
     def replace_match(match):
         uid = match.group(1)
-        cursor.execute("SELECT name FROM users WHERE id=?", (uid,))
-        row = cursor.fetchone()
-        return f"@{row[0]}" if row else "@User"
+        # High-speed dictionary lookup instead of SQL query
+        return f"@{USER_ID_MAP_RAM.get(uid, 'User')}"
     return USER_PING_PATTERN.sub(replace_match, content)
 
 def clean_placeholders(text):
