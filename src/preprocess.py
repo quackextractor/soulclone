@@ -9,15 +9,10 @@ import pandas as pd
 from datetime import datetime
 from dotenv import load_dotenv
 from tqdm import tqdm
+from langdetect import detect, DetectorFactory
 
-# Attempt to load fasttext for high-speed language detection
-try:
-    import fasttext
-    fasttext.FastText.eprint = lambda x: None # Suppress warnings
-    lang_model = fasttext.load_model('lid.176.ftz')
-except Exception:
-    lang_model = None
-    print("Warning: fasttext or 'lid.176.ftz' not found. Language detection will fall back to Unknown.")
+# Ensure consistent results from langdetect
+DetectorFactory.seed = 0
 
 # Load environment variables
 load_dotenv()
@@ -220,13 +215,10 @@ def extract_pairs_from_csv(filepath):
                         lang_hint = ""
                         lang_name = "Unknown" # Default assignment
                         
-                        # Use fasttext if available and required
-                        if LANG_MODE in ["B", "C"] and word_count >= MIN_WORDS_LANG_DETECT and lang_model:
+                        # Use langdetect seamlessly
+                        if LANG_MODE in ["B", "C"] and word_count >= MIN_WORDS_LANG_DETECT:
                             try:
-                                text_for_lang = target_response.replace('\n', ' ')
-                                pred = lang_model.predict(text_for_lang)
-                                lang_code = pred[0][0].replace('__label__', '')
-                                
+                                lang_code = detect(target_response)
                                 if lang_code in LANG_MAP:
                                     lang_name = LANG_MAP[lang_code]
                                     stats["languages_detected"][lang_name] = stats["languages_detected"].get(lang_name, 0) + 1
