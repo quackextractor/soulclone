@@ -2,3 +2,4 @@ python-dotenv
 PyYAML
 langdetect
 pyzipper
+tqdm

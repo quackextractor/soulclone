@@ -5,6 +5,7 @@ import json
 import re
 import pyzipper
 from dotenv import load_dotenv
+from tqdm import tqdm
 
 # Load environment variables
 load_dotenv()
@@ -32,16 +33,22 @@ def generate_samples():
         print(f"Error: {dataset_file} not found. Please run 'preprocess.py' first.")
         return
 
+    # Count total lines for the progress bar
+    print("Preparing to load dataset...")
+    with open(dataset_file, 'r', encoding='utf-8') as f:
+        total_lines = sum(1 for _ in f)
+
     # Read preprocessed dataset
     dataset = []
     with open(dataset_file, 'r', encoding='utf-8') as f:
-        for line in f:
+        for line in tqdm(f, total=total_lines, desc="Loading Preprocessed Data", unit="lines"):
             if line.strip():
                 dataset.append(json.loads(line))
 
     # Multi-Dimensional Bucketing: Group by Language, then by Length
     lang_buckets = {}
-    for item in dataset:
+    print("Categorizing and bucketing data...")
+    for item in tqdm(dataset, desc="Bucketing", unit="items"):
         lang = item.get("language", "Unknown")
         if lang not in lang_buckets:
             lang_buckets[lang] = {"short": [], "medium": [], "long": []}
@@ -151,8 +158,9 @@ def generate_samples():
     random.shuffle(sampled_data)
 
     # Write out data
+    print(f"Preparing to write {len(sampled_data)} samples to disk...")
     with open(samples_file, 'w', encoding='utf-8') as f:
-        for item in sampled_data:
+        for item in tqdm(sampled_data, desc="Saving Samples", unit="items"):
             # Drop the internal 'language' tag before saving so Hugging Face can read it normally
             clean_item = {"messages": item["messages"]}
             f.write(json.dumps(clean_item, ensure_ascii=False) + "\n")
@@ -194,7 +202,7 @@ def generate_samples():
         
     print(f"Sample summary written to {sample_summary_file}.")
 
-    # --- Zipping Logic ---
+    # Zipping Logic
     zip_password = os.getenv("ZIP_PASSWORD")
     if zip_password:
         zip_path = os.path.join(output_dir, "processed_samples.zip")

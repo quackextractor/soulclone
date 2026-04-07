@@ -7,6 +7,7 @@ import random
 from datetime import datetime
 from dotenv import load_dotenv
 from langdetect import detect, DetectorFactory
+from tqdm import tqdm
 
 # Ensure consistent results from langdetect
 DetectorFactory.seed = 0
@@ -74,19 +75,24 @@ def parse_date(date_str):
 def build_global_user_map(source_dir):
     """Phase 0: Scans all CSVs to build a dictionary of UserIDs to Names."""
     print("Building Username Map...")
+    
+    csv_files = []
     for root, _, files in os.walk(source_dir):
         for file in files:
             if file.endswith(".csv"):
-                try:
-                    with open(os.path.join(root, file), 'r', encoding='utf-8') as f:
-                        reader = csv.DictReader(f)
-                        for row in reader:
-                            author_name = row.get("Author", "").strip()
-                            author_id = row.get("AuthorID") or row.get("User ID")
-                            if author_name and author_id:
-                                clean_name = author_name.split('#')[0]
-                                USER_ID_MAP[str(author_id)] = clean_name
-                except Exception: continue
+                csv_files.append(os.path.join(root, file))
+                
+    for filepath in tqdm(csv_files, desc="Mapping Users", unit="file"):
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    author_name = row.get("Author", "").strip()
+                    author_id = row.get("AuthorID") or row.get("User ID")
+                    if author_name and author_id:
+                        clean_name = author_name.split('#')[0]
+                        USER_ID_MAP[str(author_id)] = clean_name
+        except Exception: continue
     print(f"Mapped {len(USER_ID_MAP)} unique users.")
 
 def resolve_mentions(content):
@@ -253,12 +259,17 @@ def process_discord_logs():
     output_file = os.path.join(output_dir, config["files"]["dataset"])
     summary_file = os.path.join(output_dir, config["files"]["summary"])
 
-    dataset = []
+    csv_files = []
     for root, _, files in os.walk(source_dir):
         for file in files:
             if file.endswith(".csv"):
-                dataset.extend(extract_pairs_from_csv(os.path.join(root, file)))
+                csv_files.append(os.path.join(root, file))
 
+    dataset = []
+    for filepath in tqdm(csv_files, desc="Processing Message Logs", unit="file"):
+        dataset.extend(extract_pairs_from_csv(filepath))
+
+    print(f"Writing dataset to {output_file}...")
     with open(output_file, 'w', encoding='utf-8') as f:
         for entry in dataset:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
