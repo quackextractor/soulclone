@@ -212,9 +212,8 @@ def extract_pairs_from_csv(filepath):
                             role = "assistant" if ctx_msg["author"].lower() == TARGET_USER.lower() else "user"
                             content_str = ctx_msg['content']
                             
-                            if role == "assistant":
-                                content_str = clean_placeholders(content_str)
-                                if not content_str: continue 
+                            content_str = clean_placeholders(content_str)
+                            if not content_str: continue 
                             
                             ctx_words = content_str.split()
                             if len(ctx_words) > MAX_MSG_WORDS:
