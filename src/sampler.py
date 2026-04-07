@@ -66,7 +66,8 @@ def generate_samples():
             word_count = 0
             for msg in reversed(messages):
                 if msg["role"] == "assistant":
-                    word_count = len(msg["content"].split())
+                    content_clean = re.sub(r'^\[.*?\]:\s*', '', msg["content"])
+                    word_count = len(content_clean.split())
                     break
                     
             bucket = "long"
@@ -164,7 +165,8 @@ def generate_samples():
             word_count = 0
             for msg in reversed(messages):
                 if msg["role"] == "assistant":
-                    word_count = len(msg["content"].split())
+                    content_clean = re.sub(r'^\[.*?\]:\s*', '', msg["content"])
+                    word_count = len(content_clean.split())
                     break
                     
             bucket = "long"

@@ -34,7 +34,7 @@ TARGET_USER = os.getenv("TARGET_USER", "your_target_username")
 KNOWN_BOTS = set(config["preprocessing"]["known_bots"])
 IGNORE_USERS = set([u.lower() for u in config["preprocessing"].get("ignore_users", [])])
 PLACEHOLDERS = set(config["preprocessing"]["placeholders"])
-MIN_CONTEXT = config["preprocessing"]["min_context_window"]
+MIN_CONTEXT = max(config["preprocessing"].get("min_context_window", 4), 4)
 MAX_CONTEXT = config["preprocessing"]["max_context_window"]
 MAX_MSG_WORDS = config["preprocessing"].get("max_msg_words", 100)
 MAX_TIME_DELTA = config["preprocessing"].get("max_time_delta_seconds", 3600)
@@ -111,9 +111,7 @@ def extract_pairs_from_csv(filepath):
             
             for row in reader:
                 author = row.get("Author", "").strip()
-                # Preserved newlines for structural formatting
                 content = row.get("Content", "")
-                attachments = row.get("Attachments", "").strip()
                 date_str = row.get("Date", "").strip()
             
                 if not author: continue
@@ -126,21 +124,14 @@ def extract_pairs_from_csv(filepath):
                 content = resolve_mentions(content)
                 content = GENERAL_PING_PATTERN.sub(r'\1', content)
                 
-                # Tag attachments
-                if not content and attachments:
-                    content = "[Attachment]"
-                elif not content:
-                    content = "[Empty/Reaction]"
-                    
-                # Handle Links and Emojis/Stickers
-                content = MARKDOWN_LINK_PATTERN.sub(r'\1 [Link]', content)
-                cleaned_content = URL_PATTERN.sub("[Link]", content).strip()
+                # Strip Markdown Links and URLs entirely instead of tagging
+                cleaned_content = MARKDOWN_LINK_PATTERN.sub(r'\1', content)
+                cleaned_content = URL_PATTERN.sub("", cleaned_content).strip()
                 
-                # Condense consecutive placeholders to prevent context pollution
-                cleaned_content = re.sub(r'(\[Link\]\s*){2,}', '[Multiple Links] ', cleaned_content)
-                cleaned_content = re.sub(r'(\[Attachment\]\s*){2,}', '[Multiple Attachments] ', cleaned_content)
-                cleaned_content = re.sub(r'(\[Empty/Reaction\]\s*){2,}', '[Multiple Reactions] ', cleaned_content)
-                cleaned_content = cleaned_content.strip()
+                if not cleaned_content:
+                    if author.lower() == TARGET_USER.lower() and DROP_ATTACHMENT_ONLY:
+                        stats["attachment_only_responses_dropped"] += 1
+                    continue
                 
                 if SYSTEM_MSG_PATTERN.search(cleaned_content) or COMMAND_PATTERN.search(cleaned_content):
                     continue
@@ -155,10 +146,7 @@ def extract_pairs_from_csv(filepath):
                         is_within_time = (time_delta_sec < MAX_TIME_DELTA)
                     
                     if (last_msg['author'].lower() == author.lower()) and is_within_time:
-                        if last_msg['content'] == "[Empty/Reaction]":
-                            last_msg['content'] = cleaned_content
-                        elif cleaned_content != "[Empty/Reaction]":
-                            last_msg['content'] += f" \n{cleaned_content}" # Added newline for merged messages
+                        last_msg['content'] += f" \n{cleaned_content}" 
                         if msg_time: last_msg['time'] = msg_time
                         continue
                         
@@ -190,8 +178,6 @@ def extract_pairs_from_csv(filepath):
                     
                     # 1. Skip if empty after cleaning or if too long
                     if not target_response or word_count > MAX_MSG_WORDS:
-                        if DROP_ATTACHMENT_ONLY and raw_content in PLACEHOLDERS:
-                            stats["attachment_only_responses_dropped"] += 1
                         context_queue.append({"author": author, "content": raw_content})
                         continue
 
@@ -234,16 +220,12 @@ def extract_pairs_from_csv(filepath):
                             if len(ctx_words) > MAX_MSG_WORDS:
                                 content_str = " ".join(ctx_words[:MAX_MSG_WORDS]) + "..."
                             
-                            if role == "user":
-                                # Updated structural format for Mistral NeMo
-                                content_str = f"[{ctx_msg['author']}]: {content_str}"
-                                
-                            if messages[-1]["role"] == role:
-                                messages[-1]["content"] += f"\n{content_str}"
-                            else:
-                                messages.append({"role": role, "content": content_str})
+                            content_str = f"[{ctx_msg['author']}]: {content_str}"
+                            
+                            messages.append({"role": role, "content": content_str})
                                     
-                        messages.append({"role": "assistant", "content": target_response})
+                        formatted_target = f"[{TARGET_USER}]: {target_response}"
+                        messages.append({"role": "assistant", "content": formatted_target})
                         dataset.append({"messages": messages})
                         stats["total_pairs_processed"] += 1
                 
