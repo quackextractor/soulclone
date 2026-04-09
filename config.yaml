@@ -19,7 +19,7 @@ preprocessing:
   # A: Disable language detection entirely
   # B: Track in summary.json only (default)
   # C: Track in summary and use for language hints
-  language_detection_mode: "C"
+  language_detection_mode: "B"
   
   known_bots:
     - "clyde"
