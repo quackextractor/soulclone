@@ -9,38 +9,25 @@ By using exported CSV chat logs from direct messages, group chats, and server ch
 * **Data Processing Pipeline:** Python 3.8+, SQLite (in-memory mapping), Pandas, Lingua (Language Detection), PyZipper (AES-256 Encryption).
 * **Training Environment:** Designed for Google Colab (Free T4 GPU 15GB VRAM).
 * **Training Backend:** **Unsloth** (Custom Triton kernels, 2x faster, 50% less VRAM), Hugging Face `transformers`, `trl`, `peft`.
-* **Target Base Model:** **Mistral NeMo 12B** (Highly recommended due to its native 128k context window and advanced capability to seamlessly code-switch between languages).
+* **Target Base Model:** **Hermes 3 (3B)** (Highly recommended due to its blazing fast inference on T4 GPUs, massive context window, and advanced capability to seamlessly code-switch between languages).
+* **Inference Engine:** A universal loader natively supporting both LoRA adapters and compiled GGUF files with native C-optimized stop strings, group chat simulation, dynamic sliders, and threaded streaming.
 
 ## Quick Start & Setup
 
 1. **Prerequisites:** Ensure you have Python 3.8+ installed and accessible in your system PATH.
-2. **Environment Setup:** Run the included setup script to automatically create your virtual environment  and install all necessary dependencies:
-   ```bat
-   setup.bat
-   ```
-3. **Configuration:** * Copy `.env.example` to a new file named `.env`.
-   * Update `SOURCE_DIR` to point to the folder containing your Discord chat CSV exports.
-   * Update the `TARGET_USER` field to match the exact Discord username you want to clone.
-   * Set a strong `ZIP_PASSWORD` to ensure your resulting datasets are encrypted.
-4. **Advanced Settings:** Open `config.yaml` if you wish to adjust context window sizes, sampling distributions, or language detection parameters.
+2. **Environment Setup:** Run the included setup script to automatically create your virtual environment and install dependencies.
+3. **Data Acquisition:** Export your Discord chats using a tool like DiscordChatExporter (CSV format required).
+4. **Configuration:** Set up your `.env` and `config.yaml` files.
+5. **Execution:** Run `python main.py` to process your data, extract the persona, and generate the encrypted training payload.
+6. **Training:** Upload the payload to Google Drive and run `clone-training.ipynb` in Google Colab.
+7. **Inference:** Test your model natively in Colab using `chat-inference.ipynb`.
 
-## Pipeline Architecture
+***
 
-This project is broken into four distinct parts. See `docs.md` for detailed configuration and execution instructions for each phase.
+## Ethical & Legal Disclaimer
 
-1. **Preprocess (`preprocess.py`):** Parses gigabytes of CSV logs, resolves user mentions, cleans spam, detects languages, and generates conversational context windows into a master `dataset.jsonl` file.
-2. **Sample (`sampler.py`):** Extracts a balanced, memory-optimized subset of the master dataset, ensuring fair distribution of short/medium/long responses and diverse language representation. Packages the output into a secure AES-256 zip.
-3. **Train (`clone-training.ipynb`):** A highly optimized Google Colab notebook utilizing Unsloth to forcefully train the target persona into Mistral NeMo 12B in a single epoch.
-4. **Chat (`chat-inference.ipynb`):** A real-time inference notebook with dynamic streaming, live slider adjustments for temperature/penalty, and on-the-fly adapter hot-swapping.
-
----
-
-## Legal & Disclaimer
-
-**Non-Affiliation** This project is an independent, unofficial tool and is not affiliated, associated, authorized, endorsed by, or in any way officially connected with Discord Inc., its subsidiaries, or its related companies. "Discord" and its related brand indicia are the property and trademarks of Discord Inc.
-
-**Terms of Service Compliance**
-Users of this tool are solely responsible for ensuring their use complies with Discord's Terms of Service and all applicable laws, rules, and regulations. Please be aware that Discord's terms strictly prohibit scraping their services without written consent. Furthermore, users are prohibited from selling, licensing, or otherwise commercializing content or data obtained from Discord's services. You must not use this tool or the resulting datasets to infringe upon anyone else's intellectual property or proprietary rights.
+**Content Rights & Terms of Service**
+This tool is intended strictly for personal, educational, and research use. By using this tool, you acknowledge and agree that you are solely responsible for complying with the Discord Terms of Service. You are strictly prohibited from scraping, mass-downloading, or otherwise commercializing content or data obtained from Discord's services. You must not use this tool or the resulting datasets to infringe upon anyone else's intellectual property or proprietary rights.
 
 **Data & Privacy**
 This tool is designed to process exported chat history locally. You are solely responsible for the data you choose to process. You must ensure you have the appropriate rights to use, process, and distribute any content you input into this tool, and you must respect the privacy and consent of other users whose messages may be present in your exported direct messages, group chats, and server channels.
