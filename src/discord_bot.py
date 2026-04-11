@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 import discord
 import asyncio
@@ -15,10 +16,23 @@ def run_bot():
     bot_token = os.getenv("DISCORD_BOT_TOKEN")
     base_url = os.getenv("LM_STUDIO_URL", "http://localhost:1234/v1")
     api_key = os.getenv("LM_STUDIO_API_KEY", "lm-studio")
+    admin_user = os.getenv("ADMIN_USER")
 
     if not bot_token or not target_user:
         print("Error: DISCORD_BOT_TOKEN and TARGET_USER must be set in your .env file.")
         return
+    
+    if not admin_user:
+        print("Warning: ADMIN_USER is not set in .env. Admin commands will be unusable.")
+
+    # Dynamic configuration state
+    bot_config = {
+        "max_history": 10,
+        "track_non_mentions": False,
+        "enabled": False,               # Bot starts up disabled
+        "reply_any_message": False,     # Any message mode
+        "allowed_channel_id": None      # Channel restriction
+    }
 
     # Use AsyncOpenAI to prevent blocking the Discord event loop
     client = AsyncOpenAI(base_url=base_url, api_key=api_key)
@@ -27,14 +41,12 @@ def run_bot():
     intents = discord.Intents.default()
     intents.message_content = True
     
-    # Upgraded to commands.Bot to easily support utility commands alongside the LLM mentions
     bot = commands.Bot(command_prefix="!", intents=intents)
 
     # 1. Rate Limiting / Queue Setup
     request_lock = asyncio.Lock()
 
     # 2. Conversation Memory Setup
-    MAX_HISTORY = 10 
     channel_histories = {}
     
     # 3. Bot Statistics Tracking
@@ -44,17 +56,27 @@ def run_bot():
         "errors": 0
     }
 
+    # --- ADMIN CHECK DECORATOR ---
+    def is_admin():
+        async def predicate(ctx):
+            if ctx.author.name == admin_user:
+                return True
+            await ctx.send("You do not have permission to use this command.")
+            return False
+        return commands.check(predicate)
+
     @bot.event
     async def on_ready():
         print(f'Successfully logged in as {bot.user}')
 
-    # --- UTILITY COMMANDS ---
+    # --- UTILITY & ADMIN COMMANDS ---
 
     @bot.command(name="reset", help="Clears the conversation memory for the current channel.")
     async def reset_memory(ctx):
         if ctx.channel.id in channel_histories:
             channel_histories[ctx.channel.id].clear()
-            await ctx.send(f"🧠 Memory wiped for #{ctx.channel.name}. Starting fresh!")
+            channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
+            await ctx.send(f"Memory wiped for {channel_name}. Starting fresh!")
         else:
             await ctx.send("There is no memory to clear for this channel.")
 
@@ -71,7 +93,7 @@ def run_bot():
         embed.add_field(name="Uptime", value=uptime_str, inline=False)
         embed.add_field(name="Messages Processed", value=str(bot_stats["messages_processed"]), inline=True)
         embed.add_field(name="Errors Encountered", value=str(bot_stats["errors"]), inline=True)
-        embed.add_field(name="Current Channel Memory", value=f"{memory_size} / {MAX_HISTORY} messages", inline=False)
+        embed.add_field(name="Current Channel Memory", value=f"{memory_size} / {bot_config['max_history']} messages", inline=False)
         
         await ctx.send(embed=embed)
 
@@ -79,9 +101,84 @@ def run_bot():
     async def show_config(ctx):
         embed = discord.Embed(title="Bot Configuration", color=discord.Color.green())
         embed.add_field(name="Target User Persona", value=target_user, inline=False)
-        embed.add_field(name="Max History (Memory)", value=str(MAX_HISTORY), inline=True)
+        embed.add_field(name="Admin User", value=admin_user or "None Set", inline=True)
+        embed.add_field(name="Max History (Memory)", value=str(bot_config["max_history"]), inline=True)
+        embed.add_field(name="Track Non-Mentions", value=str(bot_config["track_non_mentions"]), inline=True)
+        embed.add_field(name="Bot Enabled", value=str(bot_config["enabled"]), inline=True)
+        embed.add_field(name="Any Message Mode", value=str(bot_config["reply_any_message"]), inline=True)
+        
+        channel_name = "None (Any)"
+        if bot_config["allowed_channel_id"]:
+            channel = bot.get_channel(bot_config["allowed_channel_id"])
+            if channel:
+                channel_name = f"#{channel.name}"
+            else:
+                channel_name = str(bot_config["allowed_channel_id"])
+        embed.add_field(name="Restricted Channel", value=channel_name, inline=True)
+        
         embed.add_field(name="LLM Endpoint", value=base_url, inline=False)
         await ctx.send(embed=embed)
+
+    @bot.command(name="set_history", help="[Admin] Set the maximum conversation history length.")
+    @is_admin()
+    async def set_history(ctx, length: int):
+        if length < 1:
+            await ctx.send("History length must be at least 1.")
+            return
+        
+        bot_config["max_history"] = length
+        
+        # Resize existing memory buffers
+        for channel_id, history in channel_histories.items():
+            channel_histories[channel_id] = deque(history, maxlen=length)
+            
+        await ctx.send(f"`MAX_HISTORY` set to {length}. Existing histories truncated if necessary.")
+
+    @bot.command(name="toggle_tracking", help="[Admin] Toggle tracking of non-mention messages in history.")
+    @is_admin()
+    async def toggle_tracking(ctx):
+        bot_config["track_non_mentions"] = not bot_config["track_non_mentions"]
+        state = "ON" if bot_config["track_non_mentions"] else "OFF"
+        await ctx.send(f"Tracking of non-mention messages is now **{state}**.")
+
+    @bot.command(name="toggle_bot", help="[Admin] Toggle whether the bot replies to messages.")
+    @is_admin()
+    async def toggle_bot(ctx):
+        bot_config["enabled"] = not bot_config["enabled"]
+        state = "ON" if bot_config["enabled"] else "OFF"
+        await ctx.send(f"Bot answering is now **{state}**.")
+
+    @bot.command(name="toggle_anymessage", help="[Admin] Toggle 'any message' mode (reply without mention).")
+    @is_admin()
+    async def toggle_anymessage(ctx):
+        bot_config["reply_any_message"] = not bot_config["reply_any_message"]
+        state = "ON" if bot_config["reply_any_message"] else "OFF"
+        await ctx.send(f"Any message mode is now **{state}**.")
+
+    @bot.command(name="set_channel", help="[Admin] Restricts bot replies to a specific channel. Use 'clear' to unrestrict.")
+    @is_admin()
+    async def set_channel(ctx, arg: str = None):
+        if arg and arg.lower() == "clear":
+            bot_config["allowed_channel_id"] = None
+            await ctx.send("Channel restriction removed. The bot can now reply in any channel.")
+        else:
+            bot_config["allowed_channel_id"] = ctx.channel.id
+            channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
+            await ctx.send(f"Bot is now restricted to channel: {channel_name}")
+
+    @bot.command(name="shutdown", help="[Admin] Completely shuts down the bot script.")
+    @is_admin()
+    async def shutdown(ctx):
+        await ctx.send("Shutting down bot script...")
+        await bot.close()
+        sys.exit(0)
+
+    @bot.command(name="restart", help="[Admin] Restarts the bot script.")
+    @is_admin()
+    async def restart(ctx):
+        await ctx.send("Restarting bot script...")
+        await bot.close()
+        os.execv(sys.executable, ['python'] + sys.argv)
 
     @bot.command(name="ping", help="Checks the bot's response latency.")
     async def ping(ctx):
@@ -96,13 +193,34 @@ def run_bot():
         if message.author == bot.user:
             return
 
+        is_dm = isinstance(message.channel, discord.DMChannel)
+
+        # Restrict DMs to the admin user only
+        if is_dm and message.author.name != admin_user:
+            return
+
         # Process commands first (like !reset, !stats). If it's a command, execute it and stop.
         if message.content.startswith(bot.command_prefix):
             await bot.process_commands(message)
             return
 
-        # Trigger the bot only if it is mentioned
-        if bot.user in message.mentions:
+        # Stop processing standard messages if the bot is disabled
+        if not bot_config["enabled"]:
+            return
+
+        # Check channel restriction (Allow admin DMs to bypass channel restrictions)
+        if not is_dm and bot_config["allowed_channel_id"] is not None and message.channel.id != bot_config["allowed_channel_id"]:
+            return
+
+        is_mentioned = bot.user in message.mentions
+        
+        # If it's a DM, it should reply automatically. Otherwise, rely on mention or any_message config.
+        should_reply = is_mentioned or bot_config["reply_any_message"] or is_dm
+        should_save_history = should_reply or bot_config["track_non_mentions"]
+
+        # Only process for history if we are replying OR if non-mention tracking is ON
+        if should_save_history:
+            
             # Clean the input by removing the bot mention from the text
             user_input = message.content.replace(f'<@{bot.user.id}>', '').strip()
 
@@ -110,16 +228,17 @@ def run_bot():
             sender_name = message.author.name
             formatted_user_input = f"[{sender_name}]: {user_input}"
 
-            # Initialize channel history if it doesn't exist
+            # Initialize channel history if it doesn't exist, using dynamic max_history
             if message.channel.id not in channel_histories:
-                channel_histories[message.channel.id] = deque(maxlen=MAX_HISTORY)
+                channel_histories[message.channel.id] = deque(maxlen=bot_config["max_history"])
 
             # Add the new user message to the memory buffer
             channel_histories[message.channel.id].append(
                 {"role": "user", "content": formatted_user_input}
             )
 
-            # Send a typing indicator while the model generates the response
+        # Trigger the LLM only if we are set to reply
+        if should_reply:
             async with message.channel.typing():
                 try:
                     # Build the full prompt including the system instructions and history
