@@ -4,11 +4,18 @@ import time
 import aiosqlite
 import discord
 import asyncio
-import json
-from collections import deque
-from discord.ext import commands, tasks
+from discord.ext import commands
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+
+# --- ADMIN CHECK DECORATOR ---
+def is_admin():
+    async def predicate(ctx):
+        if ctx.author.name == ctx.bot.admin_user:
+            return True
+        await ctx.send("You do not have permission to use this command.")
+        return False
+    return commands.check(predicate)
 
 class DiscordLLMBot(commands.Bot):
     def __init__(self):
@@ -20,6 +27,11 @@ class DiscordLLMBot(commands.Bot):
         self.base_url = os.getenv("LM_STUDIO_URL", "http://localhost:1234/v1")
         self.api_key = os.getenv("LM_STUDIO_API_KEY", "lm-studio")
         self.admin_user = os.getenv("ADMIN_USER")
+        
+        if not self.bot_token or not self.target_user:
+            print("Error: DISCORD_BOT_TOKEN and TARGET_USER must be set in your .env file.")
+            sys.exit(1)
+
         self.system_prompt_default = f"You are {self.target_user} in a Discord chat."
 
         # Setup Intents
@@ -46,6 +58,8 @@ class DiscordLLMBot(commands.Bot):
         """Async setup executed before the bot connects to the gateway."""
         await self._init_db()
         await self._load_config()
+
+    # --- DATABASE OPERATIONS ---
 
     async def _init_db(self):
         async with aiosqlite.connect(self.db_path) as conn:
@@ -89,7 +103,7 @@ class DiscordLLMBot(commands.Bot):
 
     async def _update_config(self, key, value):
         self.bot_config[key] = value
-        val_str = str(value)
+        val_str = str(value) if value is not None else "None"
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.execute("UPDATE config SET value = ? WHERE key = ?", (val_str, key))
             await conn.commit()
@@ -110,17 +124,24 @@ class DiscordLLMBot(commands.Bot):
                          (channel_id, role, content))
             await conn.commit()
 
+    async def _pop_last_history(self, channel_id):
+        """Removes the most recent message in the database for a channel (used on API errors)."""
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute("DELETE FROM history WHERE rowid = (SELECT MAX(rowid) FROM history WHERE channel_id = ?)", (channel_id,))
+            await conn.commit()
+
     async def _clear_history(self, channel_id):
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.execute("DELETE FROM history WHERE channel_id = ?", (channel_id,))
             await conn.commit()
+
+    # --- UTILITIES ---
 
     async def send_chunked_reply(self, message, text):
         """Splits long responses into Discord-friendly chunks of 2000 characters."""
         if not text:
             return
         
-        # Define allowed_mentions=none to prevent mass pings
         mentions = discord.AllowedMentions.none()
         
         for i in range(0, len(text), 1900):
@@ -133,59 +154,114 @@ class DiscordLLMBot(commands.Bot):
     async def on_ready(self):
         print(f'Successfully logged in as {self.user}')
 
-    # --- ADMIN CHECK ---
-    def is_admin_check(self, ctx):
-        return ctx.author.name == self.admin_user
-
     # --- COMMANDS ---
 
-    @commands.command(name="reset")
+    @commands.command(name="ping", help="Checks the bot's response latency.")
+    async def ping(self, ctx):
+        latency_ms = round(self.latency * 1000)
+        await ctx.send(f"Pong! Latency: {latency_ms}ms")
+
+    @commands.command(name="reset", help="Clears the conversation memory for the current channel.")
     async def reset_memory(self, ctx):
         await self._clear_history(ctx.channel.id)
-        await ctx.send("Memory wiped for this channel.")
+        channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
+        await ctx.send(f"Memory wiped for {channel_name}. Starting fresh!")
 
-    @commands.command(name="stats")
+    @commands.command(name="stats", help="Shows bot performance and usage statistics.")
     async def show_stats(self, ctx):
         uptime = int(time.time() - self.bot_stats["start_time"])
         mins, secs = divmod(uptime, 60)
         hours, mins = divmod(mins, 60)
         
+        history = await self._get_history(ctx.channel.id)
+        
         embed = discord.Embed(title="Bot Statistics", color=discord.Color.blue())
-        embed.add_field(name="Uptime", value=f"{hours}h {mins}m {secs}s", inline=True)
+        embed.add_field(name="Uptime", value=f"{hours}h {mins}m {secs}s", inline=False)
         embed.add_field(name="Messages Seen", value=str(self.bot_stats["messages_seen"]), inline=True)
         embed.add_field(name="Processed", value=str(self.bot_stats["messages_processed"]), inline=True)
         embed.add_field(name="Errors", value=str(self.bot_stats["errors"]), inline=True)
+        embed.add_field(name="Current Channel Memory", value=f"{len(history)} / {self.bot_config['max_history']} messages", inline=False)
         await ctx.send(embed=embed)
 
-    @commands.command(name="set_prompt")
+    @commands.command(name="config", help="Displays the current bot configuration.")
+    async def show_config(self, ctx):
+        embed = discord.Embed(title="Bot Configuration", color=discord.Color.green())
+        embed.add_field(name="Target User Persona", value=self.target_user, inline=False)
+        embed.add_field(name="Admin User", value=self.admin_user or "None Set", inline=True)
+        embed.add_field(name="Max History (Memory)", value=str(self.bot_config["max_history"]), inline=True)
+        embed.add_field(name="Track Non-Mentions", value=str(self.bot_config["track_non_mentions"]), inline=True)
+        embed.add_field(name="Bot Enabled", value=str(self.bot_config["enabled"]), inline=True)
+        embed.add_field(name="Any Message Mode", value=str(self.bot_config["reply_any_message"]), inline=True)
+        
+        channel_name = "None (Any)"
+        if self.bot_config["allowed_channel_id"]:
+            channel = self.get_channel(self.bot_config["allowed_channel_id"])
+            channel_name = f"#{channel.name}" if channel else str(self.bot_config["allowed_channel_id"])
+        embed.add_field(name="Restricted Channel", value=channel_name, inline=True)
+        
+        embed.add_field(name="LLM Endpoint", value=self.base_url, inline=False)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="set_prompt", help="[Admin] Modify the bot's system instruction prompt.")
+    @is_admin()
     async def set_prompt(self, ctx, *, new_prompt: str):
-        if not self.is_admin_check(ctx): return
         await self._update_config("system_prompt", new_prompt)
         await ctx.send("System prompt updated successfully.")
 
-    @commands.command(name="toggle_bot")
+    @commands.command(name="toggle_bot", help="[Admin] Toggle whether the bot replies to messages.")
+    @is_admin()
     async def toggle_bot(self, ctx):
-        if not self.is_admin_check(ctx): return
         new_state = not self.bot_config["enabled"]
         await self._update_config("enabled", new_state)
-        await ctx.send(f"Bot answering is now **{new_state}**.")
+        state_str = "ON" if new_state else "OFF"
+        await ctx.send(f"Bot answering is now **{state_str}**.")
 
-    @commands.command(name="set_history")
+    @commands.command(name="toggle_tracking", help="[Admin] Toggle tracking of non-mention messages in history.")
+    @is_admin()
+    async def toggle_tracking(self, ctx):
+        new_state = not self.bot_config["track_non_mentions"]
+        await self._update_config("track_non_mentions", new_state)
+        state_str = "ON" if new_state else "OFF"
+        await ctx.send(f"Tracking of non-mention messages is now **{state_str}**.")
+
+    @commands.command(name="toggle_anymessage", help="[Admin] Toggle 'any message' mode (reply without mention).")
+    @is_admin()
+    async def toggle_anymessage(self, ctx):
+        new_state = not self.bot_config["reply_any_message"]
+        await self._update_config("reply_any_message", new_state)
+        state_str = "ON" if new_state else "OFF"
+        await ctx.send(f"Any message mode is now **{state_str}**.")
+
+    @commands.command(name="set_channel", help="[Admin] Restricts bot replies to a specific channel. Use 'clear' to unrestrict.")
+    @is_admin()
+    async def set_channel(self, ctx, arg: str = None):
+        if arg and arg.lower() == "clear":
+            await self._update_config("allowed_channel_id", None)
+            await ctx.send("Channel restriction removed. The bot can now reply in any channel.")
+        else:
+            await self._update_config("allowed_channel_id", ctx.channel.id)
+            channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
+            await ctx.send(f"Bot is now restricted to channel: {channel_name}")
+
+    @commands.command(name="set_history", help="[Admin] Set the maximum conversation history length.")
+    @is_admin()
     async def set_history(self, ctx, length: int):
-        if not self.is_admin_check(ctx): return
+        if length < 1:
+            await ctx.send("History length must be at least 1.")
+            return
         await self._update_config("max_history", length)
         await ctx.send(f"Max history set to {length} messages.")
 
-    @commands.command(name="restart")
+    @commands.command(name="restart", help="[Admin] Restarts the bot script.")
+    @is_admin()
     async def restart(self, ctx):
-        if not self.is_admin_check(ctx): return
         await ctx.send("Restarting bot script...")
         await self.close()
         os.execv(sys.executable, ['python'] + sys.argv)
 
-    @commands.command(name="shutdown")
+    @commands.command(name="shutdown", help="[Admin] Completely shuts down the bot script.")
+    @is_admin()
     async def shutdown(self, ctx):
-        if not self.is_admin_check(ctx): return
         await ctx.send("Shutting down...")
         await self.close()
         sys.exit(0)
@@ -222,7 +298,6 @@ class DiscordLLMBot(commands.Bot):
             if not clean_input and message.attachments:
                 clean_input = "[Sent an attachment]"
             elif not clean_input:
-                # Discard completely empty messages (stickers, embeds, bot-generated systems) to avoid API errors
                 return
             
             formatted_input = f"[{message.author.name}]: {clean_input}"
@@ -233,13 +308,11 @@ class DiscordLLMBot(commands.Bot):
                 await message.add_reaction("⏳")
             
             async with self.request_lock:
-                # Reliable direct reaction cleanup
                 try: 
                     await message.remove_reaction("⏳", self.user)
                 except (discord.errors.NotFound, discord.errors.Forbidden): 
                     pass
                 
-                # Custom loop to maintain typing indicator for >10s generations
                 async def keep_typing():
                     try:
                         while True:
@@ -260,7 +333,6 @@ class DiscordLLMBot(commands.Bot):
                         if current_char_count + len(msg["content"]) > 12000:
                             break
                         
-                        # Merge consecutive roles: Look at index 1, not index -1
                         if len(api_messages) > 1 and api_messages[1]["role"] == msg["role"]:
                             api_messages[1]["content"] = f"{msg['content']}\n{api_messages[1]['content']}"
                         else:
@@ -282,10 +354,11 @@ class DiscordLLMBot(commands.Bot):
 
                 except Exception as e:
                     self.bot_stats["errors"] += 1
+                    # Remove the failing user message from the database so it doesn't break future context
+                    await self._pop_last_history(message.channel.id)
                     await message.reply(f"Error communicating with local server: {e}")
                 
                 finally:
-                    # Cancel background typing when generated or error out
                     typing_task.cancel()
 
 def run_bot():
