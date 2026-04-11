@@ -125,7 +125,8 @@ def generate_samples():
             "medium_pct": 0.0,
             "long_pct": 0.0
         },
-        "actual_user_distribution": {}
+        "actual_user_distribution": {},
+        "bottlenecks": {}
     }
 
     # Sample within each language block to enforce length rules
@@ -145,8 +146,36 @@ def generate_samples():
             max_medium = len(buckets["medium"]) / medium_pct if medium_pct > 0 else float('inf')
             max_long = len(buckets["long"]) / long_pct if long_pct > 0 else float('inf')
             
-            # Lock the strict total to the bottleneck or the target quota
-            strict_total = int(min(quota, max_short, max_medium, max_long))
+            capacities = {
+                "quota": quota,
+                "short": max_short,
+                "medium": max_medium,
+                "long": max_long
+            }
+            
+            bottleneck_key = min(capacities, key=capacities.get)
+            strict_total = int(capacities[bottleneck_key])
+            
+            # Calculate and log bottleneck statistics
+            if bottleneck_key != "quota" and strict_total < quota:
+                bottleneck_pct_target = {"short": short_pct, "medium": medium_pct, "long": long_pct}[bottleneck_key]
+                available = len(buckets[bottleneck_key])
+                required_for_quota = int(quota * bottleneck_pct_target)
+                deficit = required_for_quota - available
+                
+                if available > 0:
+                    pct_increase = round((deficit / available) * 100, 2)
+                else:
+                    pct_increase = "infinite"
+                    
+                print(f"\nLanguage '{lang}' bottlenecked by '{bottleneck_key}' bucket.")
+                print(f"Missing '{bottleneck_key}' samples to reach quota: {deficit} ({pct_increase}% increase needed).")
+                
+                sample_stats["bottlenecks"][lang] = {
+                    "cause": bottleneck_key,
+                    "shortfall_plain": deficit,
+                    "shortfall_percent": pct_increase
+                }
             
             short_target = int(strict_total * short_pct)
             medium_target = int(strict_total * medium_pct)
@@ -194,7 +223,7 @@ def generate_samples():
             sampled_data.append(json.loads(line.decode('utf-8')))
 
     # Write out data
-    print(f"Preparing to write {len(sampled_data)} samples to disk...")
+    print(f"\nPreparing to write {len(sampled_data)} samples to disk...")
     with open(samples_file, 'w', encoding='utf-8') as f:
         for item in tqdm(sampled_data, desc="Saving Samples", unit="items"):
             # Drop the internal 'language' tag before saving so Hugging Face can read it normally
