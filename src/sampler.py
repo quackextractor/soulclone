@@ -106,7 +106,13 @@ def generate_samples():
             break
 
     sampled_offsets = []
+    
+    # Initialize sample stats with bottleneck analysis securely pinned to the top
     sample_stats = {
+        "bottleneck_analysis": {
+            "status": "No bottlenecks detected.",
+            "details": {}
+        },
         "total_samples": 0,
         "force_balanced": force_balanced,
         "language_distribution": {},
@@ -139,14 +145,55 @@ def generate_samples():
         
         lang_sampled = []
 
+        # Analyze capacity bounds
+        short_avail = len(buckets["short"])
+        medium_avail = len(buckets["medium"])
+        long_avail = len(buckets["long"])
+        
+        short_ideal = int(quota * short_pct)
+        medium_ideal = int(quota * medium_pct)
+        long_ideal = quota - short_ideal - medium_ideal
+
         if force_balanced:
             # Determine maximum strict capacity bounded by the most restricted bucket
-            max_short = len(buckets["short"]) / short_pct if short_pct > 0 else float('inf')
-            max_medium = len(buckets["medium"]) / medium_pct if medium_pct > 0 else float('inf')
-            max_long = len(buckets["long"]) / long_pct if long_pct > 0 else float('inf')
+            max_short = short_avail / short_pct if short_pct > 0 else float('inf')
+            max_medium = medium_avail / medium_pct if medium_pct > 0 else float('inf')
+            max_long = long_avail / long_pct if long_pct > 0 else float('inf')
             
             # Lock the strict total to the bottleneck or the target quota
             strict_total = int(min(quota, max_short, max_medium, max_long))
+            
+            # Record bottleneck metrics if the strict total fails to meet the target quota
+            if strict_total < quota:
+                ratio_short = short_avail / short_ideal if short_ideal > 0 else float('inf')
+                ratio_medium = medium_avail / medium_ideal if medium_ideal > 0 else float('inf')
+                ratio_long = long_avail / long_ideal if long_ideal > 0 else float('inf')
+                
+                min_ratio = min(ratio_short, ratio_medium, ratio_long)
+                
+                causes = []
+                deficits = {}
+                
+                if ratio_short == min_ratio:
+                    causes.append("short")
+                    missing = short_ideal - short_avail
+                    deficits["short"] = {"missing_count": missing, "missing_percentage": round((missing / short_ideal) * 100, 2) if short_ideal else 0}
+                if ratio_medium == min_ratio:
+                    causes.append("medium")
+                    missing = medium_ideal - medium_avail
+                    deficits["medium"] = {"missing_count": missing, "missing_percentage": round((missing / medium_ideal) * 100, 2) if medium_ideal else 0}
+                if ratio_long == min_ratio:
+                    causes.append("long")
+                    missing = long_ideal - long_avail
+                    deficits["long"] = {"missing_count": missing, "missing_percentage": round((missing / long_ideal) * 100, 2) if long_ideal else 0}
+
+                sample_stats["bottleneck_analysis"]["details"][lang] = {
+                    "bottleneck_causes": causes,
+                    "target_quota": quota,
+                    "achieved_total": strict_total,
+                    "required_to_clear_bottleneck": deficits
+                }
+                sample_stats["bottleneck_analysis"]["status"] = "Bottlenecks restricted output."
             
             short_target = int(strict_total * short_pct)
             medium_target = int(strict_total * medium_pct)
@@ -158,19 +205,19 @@ def generate_samples():
             
         else:
             # Legacy cascading logic: Backfills deficits to hit the raw total
-            short_target = int(quota * short_pct)
-            medium_target = int(quota * medium_pct)
-            long_target = quota - short_target - medium_target
+            short_target = short_ideal
+            medium_target = medium_ideal
+            long_target = long_ideal
             
-            taken_short = min(short_target, len(buckets["short"]))
+            taken_short = min(short_target, short_avail)
             lang_sampled.extend(buckets["short"][:taken_short])
             
             medium_target += (short_target - taken_short)
-            taken_medium = min(medium_target, len(buckets["medium"]))
+            taken_medium = min(medium_target, medium_avail)
             lang_sampled.extend(buckets["medium"][:taken_medium])
             
             long_target += (medium_target - taken_medium)
-            taken_long = min(long_target, len(buckets["long"]))
+            taken_long = min(long_target, long_avail)
             lang_sampled.extend(buckets["long"][:taken_long])
             
             long_deficit = long_target - taken_long
@@ -178,9 +225,33 @@ def generate_samples():
                 pool = buckets["short"][taken_short:] + buckets["medium"][taken_medium:]
                 random.shuffle(pool)
                 lang_sampled.extend(pool[:long_deficit])
+                
+            # Log total volume bottleneck for legacy mode if overall target wasn't met
+            total_extracted = len(lang_sampled)
+            if total_extracted < quota:
+                missing = quota - total_extracted
+                sample_stats["bottleneck_analysis"]["details"][lang] = {
+                    "bottleneck_causes": ["overall_volume_insufficient"],
+                    "target_quota": quota,
+                    "achieved_total": total_extracted,
+                    "required_to_clear_bottleneck": {
+                        "overall": {"missing_count": missing, "missing_percentage": round((missing / quota) * 100, 2)}
+                    }
+                }
+                sample_stats["bottleneck_analysis"]["status"] = "Bottlenecks restricted output."
             
         sampled_offsets.extend(lang_sampled)
         sample_stats["language_distribution"][lang] = len(lang_sampled)
+
+    # Print out bottleneck findings to the console immediately
+    if sample_stats["bottleneck_analysis"]["details"]:
+        print("\n*** BOTTLENECK ANALYSIS ***")
+        for blang, bdata in sample_stats["bottleneck_analysis"]["details"].items():
+            causes = ", ".join(bdata["bottleneck_causes"])
+            print(f"Language: {blang} | Achieved: {bdata['achieved_total']} / {bdata['target_quota']} | Cause: {causes}")
+            for bbucket, binfo in bdata["required_to_clear_bottleneck"].items():
+                print(f"  Missing {bbucket.capitalize()}: {binfo['missing_count']} items ({binfo['missing_percentage']}%)")
+        print("***************************\n")
 
     # Shuffle the final compiled dataset offsets so languages aren't clustered
     random.shuffle(sampled_offsets)

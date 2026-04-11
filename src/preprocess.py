@@ -5,6 +5,7 @@ import json
 import yaml
 import random
 import sqlite3
+import sys # Import sys for exiting the script
 import pandas as pd
 from datetime import datetime, timezone
 from dotenv import load_dotenv
@@ -13,6 +14,14 @@ from lingua import Language, LanguageDetectorBuilder
 
 # Load environment variables
 load_dotenv()
+
+TARGET_USER = os.getenv("TARGET_USER")
+
+# Check if the variable is missing or just empty spaces
+if not TARGET_USER or not TARGET_USER.strip():
+    print("CRITICAL ERROR: 'TARGET_USER' is missing from your .env file.")
+    print("You must specify the target username before running this script.")
+    sys.exit(1) # Halts execution with an error code
 
 # Load configuration
 with open("config.yaml", "r", encoding="utf-8") as f:
@@ -30,7 +39,6 @@ COMMAND_PATTERN = re.compile(r'^([!/?\.\-]|p!|m!|p\|)\w+', re.IGNORECASE)
 USER_PING_PATTERN = re.compile(r'<@!?&?(\d+)>')
 GENERAL_PING_PATTERN = re.compile(r'@(everyone|here|[a-zA-Z0-9_.-]+)')
 
-TARGET_USER = os.getenv("TARGET_USER", "your_target_username")
 KNOWN_BOTS = set(config["preprocessing"]["known_bots"])
 IGNORE_USERS = set([u.lower() for u in config["preprocessing"].get("ignore_users", [])])
 PLACEHOLDERS = set(config["preprocessing"]["placeholders"])
@@ -43,7 +51,6 @@ DOWNSAMPLE_RATE = config["preprocessing"].get("short_response_downsample_rate", 
 DROP_ATTACHMENT_ONLY = config["preprocessing"].get("drop_attachment_only_responses", True)
 MIN_WORDS_LANG_DETECT = config["preprocessing"].get("min_words_for_language_detect", 6)
 LANG_MAP = config["preprocessing"].get("lang_map", {})
-
 # Language detection mode: A (None), B (Summary only), C (Summary + Hints)
 LANG_MODE = config["preprocessing"].get("language_detection_mode", "B").upper()
 
