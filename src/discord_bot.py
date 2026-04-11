@@ -22,18 +22,18 @@ class BotCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
 
-    @commands.command(name="p", aliases=["ping"], help="Checks latency. (!p)")
+    @commands.command(name="p", aliases=["ping"], help="Checks latency. (;p)")
     async def ping(self, ctx):
         latency_ms = round(self.bot.latency * 1000)
         await ctx.send(f"Pong! Latency: {latency_ms}ms")
 
-    @commands.command(name="r", aliases=["reset", "wipe"], help="Clears memory for this channel. (!r)")
+    @commands.command(name="r", aliases=["reset", "wipe"], help="Clears memory for this channel. (;r)")
     async def reset_memory(self, ctx):
         await self.bot._clear_history(ctx.channel.id)
         channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
-        await ctx.send(f"Memory wiped for {channel_name}. Starting fresh!")
+        await ctx.send(f"Memory wiped for {channel_name}. Starting fresh.")
 
-    @commands.command(name="s", aliases=["stats", "st"], help="Shows bot stats. (!s)")
+    @commands.command(name="s", aliases=["stats", "st"], help="Shows bot stats. (;s)")
     async def show_stats(self, ctx):
         uptime = int(time.time() - self.bot.bot_stats["start_time"])
         mins, secs = divmod(uptime, 60)
@@ -49,7 +49,7 @@ class BotCommands(commands.Cog):
         embed.add_field(name="Current Channel Memory", value=f"{len(history)} / {self.bot.bot_config['max_history']} msgs", inline=False)
         await ctx.send(embed=embed)
 
-    @commands.command(name="c", aliases=["config", "cfg"], help="Displays current bot parameters. (!c)")
+    @commands.command(name="c", aliases=["config", "cfg"], help="Displays current bot parameters. (;c)")
     async def show_config(self, ctx):
         embed = discord.Embed(title="Bot Configuration", color=discord.Color.green())
         embed.add_field(name="Target User Persona", value=self.bot.target_user, inline=True)
@@ -80,13 +80,13 @@ class BotCommands(commands.Cog):
         
         await ctx.send(embed=embed)
 
-    @commands.command(name="sp", aliases=["set_prompt", "prompt"], help="[Admin] Set system prompt. (!sp <prompt>)")
+    @commands.command(name="sp", aliases=["set_prompt", "prompt"], help="[Admin] Set system prompt. (;sp <prompt>)")
     @is_admin()
     async def set_prompt(self, ctx, *, new_prompt: str):
         await self.bot._update_config("system_prompt", new_prompt)
         await ctx.send("System prompt updated successfully.")
 
-    @commands.command(name="tb", aliases=["toggle_bot", "on", "off"], help="[Admin] Toggle replies. (!tb)")
+    @commands.command(name="tb", aliases=["toggle_bot", "on", "off"], help="[Admin] Toggle replies. (;tb)")
     @is_admin()
     async def toggle_bot(self, ctx):
         new_state = not self.bot.bot_config["enabled"]
@@ -94,7 +94,7 @@ class BotCommands(commands.Cog):
         state_str = "ON" if new_state else "OFF"
         await ctx.send(f"Bot answering is now **{state_str}**.")
 
-    @commands.command(name="tt", aliases=["toggle_tracking", "track"], help="[Admin] Toggle non-mention tracking. (!tt)")
+    @commands.command(name="tt", aliases=["toggle_tracking", "track"], help="[Admin] Toggle non-mention tracking. (;tt)")
     @is_admin()
     async def toggle_tracking(self, ctx):
         new_state = not self.bot.bot_config["track_non_mentions"]
@@ -102,7 +102,7 @@ class BotCommands(commands.Cog):
         state_str = "ON" if new_state else "OFF"
         await ctx.send(f"Tracking of non-mention messages is now **{state_str}**.")
 
-    @commands.command(name="ta", aliases=["toggle_anymessage", "any"], help="[Admin] Toggle 'any message' mode. (!ta)")
+    @commands.command(name="ta", aliases=["toggle_anymessage", "any"], help="[Admin] Toggle 'any message' mode. (;ta)")
     @is_admin()
     async def toggle_anymessage(self, ctx):
         new_state = not self.bot.bot_config["reply_any_message"]
@@ -110,7 +110,7 @@ class BotCommands(commands.Cog):
         state_str = "ON" if new_state else "OFF"
         await ctx.send(f"Any message mode is now **{state_str}**.")
 
-    @commands.command(name="sc", aliases=["set_channel", "chan"], help="[Admin] Restrict to channel. 'clear' to undo. (!sc)")
+    @commands.command(name="sc", aliases=["set_channel", "chan"], help="[Admin] Restrict to channel. 'clear' to undo. (;sc)")
     @is_admin()
     async def set_channel(self, ctx, arg: str = None):
         if arg and arg.lower() == "clear":
@@ -121,7 +121,7 @@ class BotCommands(commands.Cog):
             channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
             await ctx.send(f"Bot is now restricted to channel: {channel_name}")
 
-    @commands.command(name="sh", aliases=["set_history", "hist"], help="[Admin] Set max history length. (!sh <num>)")
+    @commands.command(name="sh", aliases=["set_history", "hist"], help="[Admin] Set max history length. (;sh <num>)")
     @is_admin()
     async def set_history(self, ctx, length: int):
         if length < 1:
@@ -130,14 +130,21 @@ class BotCommands(commands.Cog):
         await self.bot._update_config("max_history", length)
         await ctx.send(f"Max history set to {length} messages.")
 
-    @commands.command(name="rs", aliases=["restart"], help="[Admin] Restarts bot script. (!rs)")
+    @commands.command(name="rc", aliases=["reset_config"], help="[Admin] Reset configuration to default values. (;rc)")
+    @is_admin()
+    async def reset_config(self, ctx):
+        await self.bot._reset_to_defaults()
+        await ctx.send("Bot configuration has been restored to default values.")
+
+    @commands.command(name="rs", aliases=["restart"], help="[Admin] Restarts bot script. (;rs)")
     @is_admin()
     async def restart(self, ctx):
         await ctx.send("Restarting bot script...")
+        await self.bot._update_config("restart_channel_id", ctx.channel.id)
         await self.bot.close()
         os.execv(sys.executable, ['python'] + sys.argv)
 
-    @commands.command(name="sd", aliases=["shutdown", "kill"], help="[Admin] Shuts down bot. (!sd)")
+    @commands.command(name="sd", aliases=["shutdown", "kill"], help="[Admin] Shuts down bot. (;sd)")
     @is_admin()
     async def shutdown(self, ctx):
         await ctx.send("Shutting down...")
@@ -166,7 +173,7 @@ class DiscordLLMBot(commands.Bot):
         intents = discord.Intents.default()
         intents.message_content = True
         
-        super().__init__(command_prefix="!", intents=intents)
+        super().__init__(command_prefix=";", intents=intents)
 
         # Initialization
         self.client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
@@ -208,7 +215,8 @@ class DiscordLLMBot(commands.Bot):
             "enabled": "False",
             "reply_any_message": "False",
             "allowed_channel_id": "None",
-            "system_prompt": self.system_prompt_default
+            "system_prompt": self.system_prompt_default,
+            "restart_channel_id": "None"
         }
         
         async with aiosqlite.connect(self.db_path) as conn:
@@ -225,7 +233,7 @@ class DiscordLLMBot(commands.Bot):
                     self.bot_config[key] = (val_str == "True")
                 elif key == "max_history":
                     self.bot_config[key] = int(val_str)
-                elif key == "allowed_channel_id":
+                elif key in ("allowed_channel_id", "restart_channel_id"):
                     self.bot_config[key] = int(val_str) if val_str != "None" else None
                 else:
                     self.bot_config[key] = val_str
@@ -236,6 +244,31 @@ class DiscordLLMBot(commands.Bot):
         val_str = str(value) if value is not None else "None"
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.execute("UPDATE config SET value = ? WHERE key = ?", (val_str, key))
+            await conn.commit()
+
+    async def _reset_to_defaults(self):
+        defaults = {
+            "max_history": "15",
+            "track_non_mentions": "False",
+            "enabled": "False",
+            "reply_any_message": "False",
+            "allowed_channel_id": "None",
+            "system_prompt": self.system_prompt_default,
+            "restart_channel_id": "None"
+        }
+        async with aiosqlite.connect(self.db_path) as conn:
+            for key, default in defaults.items():
+                await conn.execute("UPDATE config SET value = ? WHERE key = ?", (default, key))
+                
+                # Update local config dictionary
+                if default in ("True", "False"):
+                    self.bot_config[key] = (default == "True")
+                elif key == "max_history":
+                    self.bot_config[key] = int(default)
+                elif key in ("allowed_channel_id", "restart_channel_id"):
+                    self.bot_config[key] = None
+                else:
+                    self.bot_config[key] = default
             await conn.commit()
 
     async def _get_history(self, channel_id):
@@ -291,6 +324,18 @@ class DiscordLLMBot(commands.Bot):
 
     async def on_ready(self):
         print(f'Successfully logged in as {self.user}')
+        
+        # Announce restart if recovering from a restart command
+        restart_channel_id = self.bot_config.get("restart_channel_id")
+        if restart_channel_id:
+            try:
+                channel = self.get_channel(restart_channel_id) or await self.fetch_channel(restart_channel_id)
+                if channel:
+                    await channel.send("The bot has successfully restarted and is back online.")
+            except Exception as e:
+                print(f"Could not send restart message: {e}")
+            finally:
+                await self._update_config("restart_channel_id", None)
 
     # --- MESSAGE PROCESSING ---
 
