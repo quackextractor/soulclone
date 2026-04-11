@@ -6,3 +6,4 @@ pyzipper
 tqdm
 discord
 openai
+aiosqlite
