@@ -108,6 +108,7 @@ def generate_samples():
     sampled_offsets = []
     sample_stats = {
         "total_samples": 0,
+        "force_balanced": force_balanced,
         "language_distribution": {},
         "target_length_distribution": {
             "short_pct": short_pct,
@@ -118,6 +119,11 @@ def generate_samples():
             "short": 0,
             "medium": 0,
             "long": 0
+        },
+        "actual_length_distribution_pct": {
+            "short_pct": 0.0,
+            "medium_pct": 0.0,
+            "long_pct": 0.0
         },
         "actual_user_distribution": {}
     }
@@ -229,6 +235,13 @@ def generate_samples():
                     sample_stats["actual_user_distribution"][username][bucket] += 1
             except Exception:
                 pass
+
+    # Calculate actual percentage distribution for the summary
+    total_extracted = sample_stats["total_samples"]
+    if total_extracted > 0:
+        sample_stats["actual_length_distribution_pct"]["short_pct"] = round(sample_stats["actual_length_totals"]["short"] / total_extracted, 4)
+        sample_stats["actual_length_distribution_pct"]["medium_pct"] = round(sample_stats["actual_length_totals"]["medium"] / total_extracted, 4)
+        sample_stats["actual_length_distribution_pct"]["long_pct"] = round(sample_stats["actual_length_totals"]["long"] / total_extracted, 4)
 
     sample_summary_file = os.path.join(output_dir, "sample_summary.json")
     with open(sample_summary_file, 'w', encoding='utf-8') as f:
