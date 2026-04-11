@@ -19,6 +19,7 @@ def generate_samples():
     dataset_file = os.path.join(output_dir, config["files"]["dataset"])
     samples_file = os.path.join(output_dir, config["files"]["samples"])
     target_total = config["sampling"]["target_total_samples"]
+    force_balanced = config["sampling"].get("force_balanced", False)
     
     # Load Response Distribution Settings
     dist_config = config["sampling"].get("response_distribution", {})
@@ -116,13 +117,9 @@ def generate_samples():
         "actual_user_distribution": {}
     }
 
-    # Sample within each language block to enforce 40/40/20 length rules
+    # Sample within each language block to enforce length rules
     for lang, quota in lang_quotas.items():
         if quota == 0: continue
-        
-        short_target = int(quota * short_pct)
-        medium_target = int(quota * medium_pct)
-        long_target = quota - short_target - medium_target
         
         buckets = lang_buckets[lang]
         random.shuffle(buckets["short"])
@@ -130,31 +127,46 @@ def generate_samples():
         random.shuffle(buckets["long"])
         
         lang_sampled = []
-        
-        # Fill short
-        taken_short = min(short_target, len(buckets["short"]))
-        lang_sampled.extend(buckets["short"][:taken_short])
-        short_deficit = short_target - taken_short
-        
-        # Fill medium (absorb short deficit if needed)
-        medium_target += short_deficit
-        taken_medium = min(medium_target, len(buckets["medium"]))
-        lang_sampled.extend(buckets["medium"][:taken_medium])
-        medium_deficit = medium_target - taken_medium
-        
-        # Fill long (absorb medium deficit if needed)
-        long_target += medium_deficit
-        taken_long = min(long_target, len(buckets["long"]))
-        lang_sampled.extend(buckets["long"][:taken_long])
-        long_deficit = long_target - taken_long
-        
-        # Backfill from any remaining pool if there's still a deficit
-        if long_deficit > 0:
-            rem_short = buckets["short"][taken_short:]
-            rem_medium = buckets["medium"][taken_medium:]
-            pool = rem_short + rem_medium
-            random.shuffle(pool)
-            lang_sampled.extend(pool[:long_deficit])
+
+        if force_balanced:
+            # Determine maximum strict capacity bounded by the most restricted bucket
+            max_short = len(buckets["short"]) / short_pct if short_pct > 0 else float('inf')
+            max_medium = len(buckets["medium"]) / medium_pct if medium_pct > 0 else float('inf')
+            max_long = len(buckets["long"]) / long_pct if long_pct > 0 else float('inf')
+            
+            # Lock the strict total to the bottleneck or the target quota
+            strict_total = int(min(quota, max_short, max_medium, max_long))
+            
+            short_target = int(strict_total * short_pct)
+            medium_target = int(strict_total * medium_pct)
+            long_target = strict_total - short_target - medium_target
+            
+            lang_sampled.extend(buckets["short"][:short_target])
+            lang_sampled.extend(buckets["medium"][:medium_target])
+            lang_sampled.extend(buckets["long"][:long_target])
+            
+        else:
+            # Legacy cascading logic: Backfills deficits to hit the raw total
+            short_target = int(quota * short_pct)
+            medium_target = int(quota * medium_pct)
+            long_target = quota - short_target - medium_target
+            
+            taken_short = min(short_target, len(buckets["short"]))
+            lang_sampled.extend(buckets["short"][:taken_short])
+            
+            medium_target += (short_target - taken_short)
+            taken_medium = min(medium_target, len(buckets["medium"]))
+            lang_sampled.extend(buckets["medium"][:taken_medium])
+            
+            long_target += (medium_target - taken_medium)
+            taken_long = min(long_target, len(buckets["long"]))
+            lang_sampled.extend(buckets["long"][:taken_long])
+            
+            long_deficit = long_target - taken_long
+            if long_deficit > 0:
+                pool = buckets["short"][taken_short:] + buckets["medium"][taken_medium:]
+                random.shuffle(pool)
+                lang_sampled.extend(pool[:long_deficit])
             
         sampled_offsets.extend(lang_sampled)
         sample_stats["language_distribution"][lang] = len(lang_sampled)

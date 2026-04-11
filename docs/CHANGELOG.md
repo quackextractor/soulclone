@@ -4,6 +4,11 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.1.0] - 2026-04-11
+
+### Added
+* Added the `force_balanced` flag to `config.yaml` and integrated a strict bottleneck calculation within `sampler.py` to enforce the requested response distribution ratios, preventing minority buckets from breaking the output dataset balance.
+
 ## [2.0.0] - 2026-04-11
 
 ### Added

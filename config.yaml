@@ -41,6 +41,7 @@ preprocessing:
 
 sampling:
   target_total_samples: 5000
+  force_balanced: true
   response_distribution:
     short_max_words: 5
     short_target_pct: 0.40
