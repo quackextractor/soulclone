@@ -114,6 +114,11 @@ def generate_samples():
             "medium_pct": medium_pct,
             "long_pct": long_pct
         },
+        "actual_length_totals": {
+            "short": 0,
+            "medium": 0,
+            "long": 0
+        },
         "actual_user_distribution": {}
     }
 
@@ -194,22 +199,26 @@ def generate_samples():
             
             # Update user stats for sample_summary.json
             try:
+                # Determine bucket for final summary first to ensure it is always counted
+                word_count = 0
+                for msg in reversed(item["messages"]):
+                    if msg["role"] == "assistant":
+                        content_clean = re.sub(r'^\[.*?\]:\s*', '', msg["content"])
+                        word_count = len(content_clean.split())
+                        break
+                        
+                bucket = "long"
+                if word_count <= short_max: bucket = "short"
+                elif word_count <= medium_max: bucket = "medium"
+
+                # Update global sums
+                sample_stats["actual_length_totals"][bucket] += 1
+
                 user_msg = item["messages"][1]["content"]
                 username_match = re.match(r'^\[(.*?)\]:', user_msg)
+                
                 if username_match:
                     username = username_match.group(1)
-                    
-                    # Determine bucket for final summary
-                    word_count = 0
-                    for msg in reversed(item["messages"]):
-                        if msg["role"] == "assistant":
-                            content_clean = re.sub(r'^\[.*?\]:\s*', '', msg["content"])
-                            word_count = len(content_clean.split())
-                            break
-                            
-                    bucket = "long"
-                    if word_count <= short_max: bucket = "short"
-                    elif word_count <= medium_max: bucket = "medium"
 
                     if username not in sample_stats["actual_user_distribution"]:
                         sample_stats["actual_user_distribution"][username] = {
