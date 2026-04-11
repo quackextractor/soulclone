@@ -204,25 +204,24 @@ def run_bot():
             await bot.process_commands(message)
             return
 
-        # Stop processing standard messages if the bot is disabled
-        if not bot_config["enabled"]:
-            return
-
         # Check channel restriction (Allow admin DMs to bypass channel restrictions)
         if not is_dm and bot_config["allowed_channel_id"] is not None and message.channel.id != bot_config["allowed_channel_id"]:
             return
 
         is_mentioned = bot.user in message.mentions
         
-        # If it's a DM, it should reply automatically. Otherwise, rely on mention or any_message config.
-        should_reply = is_mentioned or bot_config["reply_any_message"] or is_dm
+        # Determine if the bot should physically reply. It must be enabled to reply.
+        should_reply = (is_mentioned or bot_config["reply_any_message"] or is_dm) and bot_config["enabled"]
+        
+        # Determine if we should save the message to history. 
+        # We save if we are going to reply, OR if passive tracking is turned on.
         should_save_history = should_reply or bot_config["track_non_mentions"]
 
         # Only process for history if we are replying OR if non-mention tracking is ON
         if should_save_history:
             
-            # Clean the input by removing the bot mention from the text
-            user_input = message.content.replace(f'<@{bot.user.id}>', '').strip()
+            # Clean the input by removing the bot mention from the text (supports both standard and nickname mentions)
+            user_input = message.content.replace(f'<@{bot.user.id}>', '').replace(f'<@!{bot.user.id}>', '').strip()
 
             # Extract the sender's username and format it to match the training data
             sender_name = message.author.name
@@ -241,13 +240,20 @@ def run_bot():
         if should_reply:
             async with message.channel.typing():
                 try:
-                    # Build the full prompt including the system instructions and history
+                    # Build the full prompt including the system instructions
                     api_messages = [{"role": "system", "content": f"You are {target_user} in a Discord chat."}]
-                    api_messages.extend(list(channel_histories[message.channel.id]))
+                    
+                    # Combine consecutive messages from the same role to prevent API errors in local models
+                    for msg in channel_histories[message.channel.id]:
+                        if api_messages[-1]["role"] == msg["role"]:
+                            api_messages[-1]["content"] += f"\n{msg['content']}"
+                        else:
+                            # Append a new dictionary to avoid mutating the original history deque
+                            api_messages.append({"role": msg["role"], "content": msg["content"]})
 
                     # Wait in line if the server is busy processing another request
                     async with request_lock:
-                        # Send the history to your local model
+                        # Send the combined history to your local model
                         response = await client.chat.completions.create(
                             model="local-model",
                             messages=api_messages
@@ -269,7 +275,7 @@ def run_bot():
                     bot_stats["messages_processed"] += 1
 
                 except Exception as e:
-                    # If an error occurs, remove the failed message from history to prevent bad state
+                    # If an error occurs, remove the failed user message from history to prevent bad state
                     if channel_histories[message.channel.id]:
                         channel_histories[message.channel.id].pop()
                         
