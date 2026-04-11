@@ -288,6 +288,9 @@ class DiscordLLMBot(commands.Bot):
                     # Cancel background typing when generated or error out
                     typing_task.cancel()
 
-if __name__ == "__main__":
+def run_bot():
     bot = DiscordLLMBot()
     bot.run(bot.bot_token)
+
+if __name__ == "__main__":
+    run_bot()
