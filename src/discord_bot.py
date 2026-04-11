@@ -17,6 +17,127 @@ def is_admin():
         return False
     return commands.check(predicate)
 
+# --- COMMANDS COG ---
+class BotCommands(commands.Cog):
+    def __init__(self, bot):
+        self.bot = bot
+
+    @commands.command(name="ping", help="Checks the bot's response latency.")
+    async def ping(self, ctx):
+        latency_ms = round(self.bot.latency * 1000)
+        await ctx.send(f"Pong! Latency: {latency_ms}ms")
+
+    @commands.command(name="reset", help="Clears the conversation memory for the current channel.")
+    async def reset_memory(self, ctx):
+        await self.bot._clear_history(ctx.channel.id)
+        channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
+        await ctx.send(f"Memory wiped for {channel_name}. Starting fresh!")
+
+    @commands.command(name="stats", help="Shows bot performance and usage statistics.")
+    async def show_stats(self, ctx):
+        uptime = int(time.time() - self.bot.bot_stats["start_time"])
+        mins, secs = divmod(uptime, 60)
+        hours, mins = divmod(mins, 60)
+        
+        history = await self.bot._get_history(ctx.channel.id)
+        
+        embed = discord.Embed(title="Bot Statistics", color=discord.Color.blue())
+        embed.add_field(name="Uptime", value=f"{hours}h {mins}m {secs}s", inline=False)
+        embed.add_field(name="Messages Seen", value=str(self.bot.bot_stats["messages_seen"]), inline=True)
+        embed.add_field(name="Processed", value=str(self.bot.bot_stats["messages_processed"]), inline=True)
+        embed.add_field(name="Errors", value=str(self.bot.bot_stats["errors"]), inline=True)
+        embed.add_field(name="Current Channel Memory", value=f"{len(history)} / {self.bot.bot_config['max_history']} messages", inline=False)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="config", help="Displays the current bot configuration.")
+    async def show_config(self, ctx):
+        embed = discord.Embed(title="Bot Configuration", color=discord.Color.green())
+        embed.add_field(name="Target User Persona", value=self.bot.target_user, inline=False)
+        embed.add_field(name="Admin User", value=self.bot.admin_user or "None Set", inline=True)
+        embed.add_field(name="Max History (Memory)", value=str(self.bot.bot_config["max_history"]), inline=True)
+        embed.add_field(name="Track Non-Mentions", value=str(self.bot.bot_config["track_non_mentions"]), inline=True)
+        embed.add_field(name="Bot Enabled", value=str(self.bot.bot_config["enabled"]), inline=True)
+        embed.add_field(name="Any Message Mode", value=str(self.bot.bot_config["reply_any_message"]), inline=True)
+        
+        channel_name = "None (Any)"
+        allowed_id = self.bot.bot_config["allowed_channel_id"]
+        if allowed_id:
+            try:
+                # Fallback to fetch_channel if get_channel cache misses
+                channel = self.bot.get_channel(allowed_id) or await self.bot.fetch_channel(allowed_id)
+                channel_name = f"#{channel.name}" if hasattr(channel, 'name') else str(allowed_id)
+            except (discord.NotFound, discord.HTTPException):
+                channel_name = f"Unknown Channel ID ({allowed_id})"
+                
+        embed.add_field(name="Restricted Channel", value=channel_name, inline=True)
+        embed.add_field(name="LLM Endpoint", value=self.bot.base_url, inline=False)
+        await ctx.send(embed=embed)
+
+    @commands.command(name="set_prompt", help="[Admin] Modify the bot's system instruction prompt.")
+    @is_admin()
+    async def set_prompt(self, ctx, *, new_prompt: str):
+        await self.bot._update_config("system_prompt", new_prompt)
+        await ctx.send("System prompt updated successfully.")
+
+    @commands.command(name="toggle_bot", help="[Admin] Toggle whether the bot replies to messages.")
+    @is_admin()
+    async def toggle_bot(self, ctx):
+        new_state = not self.bot.bot_config["enabled"]
+        await self.bot._update_config("enabled", new_state)
+        state_str = "ON" if new_state else "OFF"
+        await ctx.send(f"Bot answering is now **{state_str}**.")
+
+    @commands.command(name="toggle_tracking", help="[Admin] Toggle tracking of non-mention messages in history.")
+    @is_admin()
+    async def toggle_tracking(self, ctx):
+        new_state = not self.bot.bot_config["track_non_mentions"]
+        await self.bot._update_config("track_non_mentions", new_state)
+        state_str = "ON" if new_state else "OFF"
+        await ctx.send(f"Tracking of non-mention messages is now **{state_str}**.")
+
+    @commands.command(name="toggle_anymessage", help="[Admin] Toggle 'any message' mode (reply without mention).")
+    @is_admin()
+    async def toggle_anymessage(self, ctx):
+        new_state = not self.bot.bot_config["reply_any_message"]
+        await self.bot._update_config("reply_any_message", new_state)
+        state_str = "ON" if new_state else "OFF"
+        await ctx.send(f"Any message mode is now **{state_str}**.")
+
+    @commands.command(name="set_channel", help="[Admin] Restricts bot replies to a specific channel. Use 'clear' to unrestrict.")
+    @is_admin()
+    async def set_channel(self, ctx, arg: str = None):
+        if arg and arg.lower() == "clear":
+            await self.bot._update_config("allowed_channel_id", None)
+            await ctx.send("Channel restriction removed. The bot can now reply in any channel.")
+        else:
+            await self.bot._update_config("allowed_channel_id", ctx.channel.id)
+            channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
+            await ctx.send(f"Bot is now restricted to channel: {channel_name}")
+
+    @commands.command(name="set_history", help="[Admin] Set the maximum conversation history length.")
+    @is_admin()
+    async def set_history(self, ctx, length: int):
+        if length < 1:
+            await ctx.send("History length must be at least 1.")
+            return
+        await self.bot._update_config("max_history", length)
+        await ctx.send(f"Max history set to {length} messages.")
+
+    @commands.command(name="restart", help="[Admin] Restarts the bot script.")
+    @is_admin()
+    async def restart(self, ctx):
+        await ctx.send("Restarting bot script...")
+        await self.bot.close()
+        os.execv(sys.executable, ['python'] + sys.argv)
+
+    @commands.command(name="shutdown", help="[Admin] Completely shuts down the bot script.")
+    @is_admin()
+    async def shutdown(self, ctx):
+        await ctx.send("Shutting down...")
+        await self.bot.close()
+        sys.exit(0)
+
+# --- MAIN BOT CLASS ---
 class DiscordLLMBot(commands.Bot):
     def __init__(self):
         load_dotenv()
@@ -58,6 +179,8 @@ class DiscordLLMBot(commands.Bot):
         """Async setup executed before the bot connects to the gateway."""
         await self._init_db()
         await self._load_config()
+        # Register the commands cog
+        await self.add_cog(BotCommands(self))
 
     # --- DATABASE OPERATIONS ---
 
@@ -138,7 +261,7 @@ class DiscordLLMBot(commands.Bot):
     # --- UTILITIES ---
 
     async def send_chunked_reply(self, message, text):
-        """Splits long responses into Discord-friendly chunks of 2000 characters."""
+        """Splits long responses into Discord-friendly chunks of 2000 characters with rate-limit protection."""
         if not text:
             return
         
@@ -146,125 +269,21 @@ class DiscordLLMBot(commands.Bot):
         
         for i in range(0, len(text), 1900):
             chunk = text[i:i + 1900]
-            if i == 0:
-                await message.reply(chunk, allowed_mentions=mentions)
-            else:
-                await message.channel.send(chunk, allowed_mentions=mentions)
+            try:
+                if i == 0:
+                    await message.reply(chunk, allowed_mentions=mentions)
+                else:
+                    await message.channel.send(chunk, allowed_mentions=mentions)
+                
+                # Small delay to prevent Discord HTTP 429 Rate Limits on long generations
+                if len(text) > 1900:
+                    await asyncio.sleep(0.5)
+            except discord.HTTPException as e:
+                print(f"Failed to send chunk due to HTTP Exception: {e}")
+                break
 
     async def on_ready(self):
         print(f'Successfully logged in as {self.user}')
-
-    # --- COMMANDS ---
-
-    @commands.command(name="ping", help="Checks the bot's response latency.")
-    async def ping(self, ctx):
-        latency_ms = round(self.latency * 1000)
-        await ctx.send(f"Pong! Latency: {latency_ms}ms")
-
-    @commands.command(name="reset", help="Clears the conversation memory for the current channel.")
-    async def reset_memory(self, ctx):
-        await self._clear_history(ctx.channel.id)
-        channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
-        await ctx.send(f"Memory wiped for {channel_name}. Starting fresh!")
-
-    @commands.command(name="stats", help="Shows bot performance and usage statistics.")
-    async def show_stats(self, ctx):
-        uptime = int(time.time() - self.bot_stats["start_time"])
-        mins, secs = divmod(uptime, 60)
-        hours, mins = divmod(mins, 60)
-        
-        history = await self._get_history(ctx.channel.id)
-        
-        embed = discord.Embed(title="Bot Statistics", color=discord.Color.blue())
-        embed.add_field(name="Uptime", value=f"{hours}h {mins}m {secs}s", inline=False)
-        embed.add_field(name="Messages Seen", value=str(self.bot_stats["messages_seen"]), inline=True)
-        embed.add_field(name="Processed", value=str(self.bot_stats["messages_processed"]), inline=True)
-        embed.add_field(name="Errors", value=str(self.bot_stats["errors"]), inline=True)
-        embed.add_field(name="Current Channel Memory", value=f"{len(history)} / {self.bot_config['max_history']} messages", inline=False)
-        await ctx.send(embed=embed)
-
-    @commands.command(name="config", help="Displays the current bot configuration.")
-    async def show_config(self, ctx):
-        embed = discord.Embed(title="Bot Configuration", color=discord.Color.green())
-        embed.add_field(name="Target User Persona", value=self.target_user, inline=False)
-        embed.add_field(name="Admin User", value=self.admin_user or "None Set", inline=True)
-        embed.add_field(name="Max History (Memory)", value=str(self.bot_config["max_history"]), inline=True)
-        embed.add_field(name="Track Non-Mentions", value=str(self.bot_config["track_non_mentions"]), inline=True)
-        embed.add_field(name="Bot Enabled", value=str(self.bot_config["enabled"]), inline=True)
-        embed.add_field(name="Any Message Mode", value=str(self.bot_config["reply_any_message"]), inline=True)
-        
-        channel_name = "None (Any)"
-        if self.bot_config["allowed_channel_id"]:
-            channel = self.get_channel(self.bot_config["allowed_channel_id"])
-            channel_name = f"#{channel.name}" if channel else str(self.bot_config["allowed_channel_id"])
-        embed.add_field(name="Restricted Channel", value=channel_name, inline=True)
-        
-        embed.add_field(name="LLM Endpoint", value=self.base_url, inline=False)
-        await ctx.send(embed=embed)
-
-    @commands.command(name="set_prompt", help="[Admin] Modify the bot's system instruction prompt.")
-    @is_admin()
-    async def set_prompt(self, ctx, *, new_prompt: str):
-        await self._update_config("system_prompt", new_prompt)
-        await ctx.send("System prompt updated successfully.")
-
-    @commands.command(name="toggle_bot", help="[Admin] Toggle whether the bot replies to messages.")
-    @is_admin()
-    async def toggle_bot(self, ctx):
-        new_state = not self.bot_config["enabled"]
-        await self._update_config("enabled", new_state)
-        state_str = "ON" if new_state else "OFF"
-        await ctx.send(f"Bot answering is now **{state_str}**.")
-
-    @commands.command(name="toggle_tracking", help="[Admin] Toggle tracking of non-mention messages in history.")
-    @is_admin()
-    async def toggle_tracking(self, ctx):
-        new_state = not self.bot_config["track_non_mentions"]
-        await self._update_config("track_non_mentions", new_state)
-        state_str = "ON" if new_state else "OFF"
-        await ctx.send(f"Tracking of non-mention messages is now **{state_str}**.")
-
-    @commands.command(name="toggle_anymessage", help="[Admin] Toggle 'any message' mode (reply without mention).")
-    @is_admin()
-    async def toggle_anymessage(self, ctx):
-        new_state = not self.bot_config["reply_any_message"]
-        await self._update_config("reply_any_message", new_state)
-        state_str = "ON" if new_state else "OFF"
-        await ctx.send(f"Any message mode is now **{state_str}**.")
-
-    @commands.command(name="set_channel", help="[Admin] Restricts bot replies to a specific channel. Use 'clear' to unrestrict.")
-    @is_admin()
-    async def set_channel(self, ctx, arg: str = None):
-        if arg and arg.lower() == "clear":
-            await self._update_config("allowed_channel_id", None)
-            await ctx.send("Channel restriction removed. The bot can now reply in any channel.")
-        else:
-            await self._update_config("allowed_channel_id", ctx.channel.id)
-            channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
-            await ctx.send(f"Bot is now restricted to channel: {channel_name}")
-
-    @commands.command(name="set_history", help="[Admin] Set the maximum conversation history length.")
-    @is_admin()
-    async def set_history(self, ctx, length: int):
-        if length < 1:
-            await ctx.send("History length must be at least 1.")
-            return
-        await self._update_config("max_history", length)
-        await ctx.send(f"Max history set to {length} messages.")
-
-    @commands.command(name="restart", help="[Admin] Restarts the bot script.")
-    @is_admin()
-    async def restart(self, ctx):
-        await ctx.send("Restarting bot script...")
-        await self.close()
-        os.execv(sys.executable, ['python'] + sys.argv)
-
-    @commands.command(name="shutdown", help="[Admin] Completely shuts down the bot script.")
-    @is_admin()
-    async def shutdown(self, ctx):
-        await ctx.send("Shutting down...")
-        await self.close()
-        sys.exit(0)
 
     # --- MESSAGE PROCESSING ---
 
@@ -274,6 +293,7 @@ class DiscordLLMBot(commands.Bot):
             
         self.bot_stats["messages_seen"] += 1
 
+        # This correctly routes commands to the Cog
         if message.content.startswith(self.command_prefix):
             await self.process_commands(message)
             return
