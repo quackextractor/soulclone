@@ -4,3 +4,5 @@ lingua-language-detector
 pandas
 pyzipper
 tqdm
+discord
+openai

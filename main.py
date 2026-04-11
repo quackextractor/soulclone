@@ -4,6 +4,7 @@ import logging
 
 from src.preprocess import process_discord_logs
 from src.sampler import generate_samples
+from src.discord_bot import run_bot
 
 def setup_logging():
     """Sets up global console logging.""" 
@@ -18,10 +19,11 @@ def main():
 
     parser = argparse.ArgumentParser(
         description=(
-            "Discord Persona - Unified CLI Tool\n\n" 
+            "Discord Persona: Unified CLI Tool\n\n" 
             "Available Commands:\n"
             "  python main.py preprocess    # Run the local data pipeline\n"
-            "  python main.py sample        # Extract a small jsonl sample"
+            "  python main.py sample        # Extract a small jsonl sample\n"
+            "  python main.py bot           # Run the local Discord bot"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -46,6 +48,12 @@ def main():
         help="Extract a small, token-safe JSONL sample from source files for debugging",
     )
 
+    # Command: bot
+    subparsers.add_parser(
+        "bot",
+        help="Start the Discord bot connected to the local LM Studio model",
+    )
+
     # Check if no arguments were passed, print help and exit
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
@@ -64,6 +72,10 @@ def main():
     elif args.command == "sample":
         logging.info("Generating data samples...")
         generate_samples()
+
+    elif args.command == "bot":
+        logging.info("Starting the Discord bot...")
+        run_bot()
 
 if __name__ == "__main__":
     main()
