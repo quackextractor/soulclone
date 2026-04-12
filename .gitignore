@@ -5,3 +5,7 @@ changes.patch
 *.zip
 *.db
 /out
+/build
+*.spec
+/release_pkg
+/dist
