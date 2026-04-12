@@ -4,6 +4,12 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.0] - 2026-04-12
+### Added
+- **Automated Update System**: Added a background task and `;update` / `;autoupdate` commands to automatically fetch the latest GitHub release (for compiled binaries) or execute `git pull` (for source scripts) without disrupting active users.
+- **Persistent Task Queue**: Implemented a startup resolution mechanism (`_resolve_persistent_queue`) that scans the SQLite database for unprocessed, unexpired user messages, ensuring no requests are lost during sudden crashes or updates.
+- **Graceful State Management**: Added a `shutting_down` flag to safely route incoming messages to the persistent queue and wait for the active generation lock to clear before executing system reboots.
+
 ## [2.6.1] - 2026-04-12
 ### Fixed
 - **Queue Expiration Visuals**: Resolved an issue where expired message requests in the queue would only remove the hourglass indicator without providing clear visual feedback. The bot now successfully adds an alarm clock reaction to notify the user that their request timed out before it could be processed.

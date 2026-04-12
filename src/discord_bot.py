@@ -4,11 +4,14 @@ import time
 import aiosqlite
 import discord
 import asyncio
-from discord.ext import commands
+import platform
+import aiohttp
+import shutil
+import stat
+from datetime import datetime, timezone
+from discord.ext import commands, tasks
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
-
-# Admin Check Decorator
 
 
 def is_admin():
@@ -18,8 +21,6 @@ def is_admin():
         await ctx.send("You do not have permission to use this command.")
         return False
     return commands.check(predicate)
-
-# Commands Cog
 
 
 class BotCommands(commands.Cog):
@@ -57,12 +58,13 @@ class BotCommands(commands.Cog):
     async def show_config(self, ctx):
         embed = discord.Embed(title="Bot Configuration", color=discord.Color.green())
         embed.add_field(name="Target User Persona", value=self.bot.target_user, inline=True)
-        embed.add_field(name="Admin User", value=self.bot.admin_user or "None Set", inline=True)
+        embed.add_field(name="Admin User", value=self.bot.admin_user_id or "None Set", inline=True)
         embed.add_field(name="Max History (Memory)", value=str(self.bot.bot_config["max_history"]), inline=True)
         embed.add_field(name="Track Non-Mentions", value=str(self.bot.bot_config["track_non_mentions"]), inline=True)
         embed.add_field(name="Bot Enabled", value=str(self.bot.bot_config["enabled"]), inline=True)
         embed.add_field(name="Any Message Mode", value=str(self.bot.bot_config["reply_any_message"]), inline=True)
         embed.add_field(name="Queue Expiration", value=f"{self.bot.bot_config['queue_expiration']}s", inline=True)
+        embed.add_field(name="Autoupdate", value=str(self.bot.bot_config["autoupdate"]), inline=True)
 
         channel_name = "None (Any)"
         allowed_id = self.bot.bot_config["allowed_channel_id"]
@@ -113,6 +115,14 @@ class BotCommands(commands.Cog):
         await self.bot._update_config("reply_any_message", new_state)
         state_str = "ON" if new_state else "OFF"
         await ctx.send(f"Any message mode is now **{state_str}**.")
+
+    @commands.command(name="au", aliases=["autoupdate"], help="[Admin] Toggle automatic background updates. (;au)")
+    @is_admin()
+    async def toggle_autoupdate(self, ctx):
+        new_state = not self.bot.bot_config["autoupdate"]
+        await self.bot._update_config("autoupdate", new_state)
+        state_str = "ON" if new_state else "OFF"
+        await ctx.send(f"Background autoupdate is now **{state_str}**.")
 
     @commands.command(name="sc", aliases=["set_channel", "chan"], help="[Admin] Restrict to channel. 'clear' to undo. (;sc)")
     @is_admin()
@@ -179,28 +189,43 @@ class BotCommands(commands.Cog):
         await self.bot.update_bot_presence()
         await ctx.send("Bot configuration has been restored to default values.")
 
-    @commands.command(name="rs", aliases=["restart"], help="[Admin] Restarts bot script. (;rs)")
+    @commands.command(name="up", aliases=["update"], help="[Admin] Force update and restart bot script. (;up)")
+    @is_admin()
+    async def update_bot(self, ctx):
+        await self.bot.perform_update(ctx.channel)
+
+    @commands.command(name="rs", aliases=["restart"], help="[Admin] Restarts bot script safely. (;rs)")
     @is_admin()
     async def restart(self, ctx):
-        await ctx.send("Restarting bot script...")
-        await self.bot._update_config("restart_channel_id", ctx.channel.id)
-        await self.bot.close()
+        if self.bot.shutting_down:
+            return
 
-        if getattr(sys, 'frozen', False):
-            # Running as a bundled executable
-            os.execv(sys.executable, sys.argv)
-        else:
-            # Running as a raw python script
-            os.execv(sys.executable, ['python'] + sys.argv)
+        self.bot.shutting_down = True
+        await ctx.send("Waiting for current generation to finish before restarting...")
 
-    @commands.command(name="sd", aliases=["shutdown", "kill"], help="[Admin] Shuts down bot. (;sd)")
+        async with self.bot.global_llm_lock:
+            await ctx.send("Restarting bot script...")
+            await self.bot._update_config("restart_channel_id", ctx.channel.id)
+            await self.bot.close()
+
+            if getattr(sys, 'frozen', False):
+                os.execv(sys.executable, sys.argv)
+            else:
+                os.execv(sys.executable, ['python'] + sys.argv)
+
+    @commands.command(name="sd", aliases=["shutdown", "kill"], help="[Admin] Shuts down bot safely. (;sd)")
     @is_admin()
     async def shutdown(self, ctx):
-        await ctx.send("Shutting down...")
-        await self.bot.close()
-        sys.exit(0)
+        if self.bot.shutting_down:
+            return
 
-# Main Bot Class
+        self.bot.shutting_down = True
+        await ctx.send("Waiting for current queue to finish before shutting down...")
+
+        async with self.bot.global_llm_lock:
+            await ctx.send("Shutting down...")
+            await self.bot.close()
+            sys.exit(0)
 
 
 class DiscordLLMBot(commands.Bot):
@@ -212,7 +237,11 @@ class DiscordLLMBot(commands.Bot):
         self.base_url = os.getenv("LM_STUDIO_URL", "http://localhost:1234/v1")
         self.api_key = os.getenv("LM_STUDIO_API_KEY", "lm-studio")
         self.admin_user_id = int(os.getenv("ADMIN_USER_ID", 0))
+        self.github_repo = os.getenv("GITHUB_REPO")
+        self.current_version = os.getenv("CURRENT_VERSION", "v1.0.0")
+
         self.current_status_hash = None
+        self.shutting_down = False
 
         if not self.bot_token or not self.target_user:
             print("Error: DISCORD_BOT_TOKEN and TARGET_USER must be set in your .env file.")
@@ -241,8 +270,7 @@ class DiscordLLMBot(commands.Bot):
         await self._init_db()
         await self._load_config()
         await self.add_cog(BotCommands(self))
-
-    # Database Operations
+        self.autoupdate_check.start()
 
     async def _init_db(self):
         async with aiosqlite.connect(self.db_path) as conn:
@@ -263,7 +291,8 @@ class DiscordLLMBot(commands.Bot):
             "allowed_channel_id": "None",
             "system_prompt": self.system_prompt_default,
             "restart_channel_id": "None",
-            "queue_expiration": "60"
+            "queue_expiration": "60",
+            "autoupdate": "False"
         }
 
         async with aiosqlite.connect(self.db_path) as conn:
@@ -303,7 +332,8 @@ class DiscordLLMBot(commands.Bot):
             "allowed_channel_id": "None",
             "system_prompt": self.system_prompt_default,
             "restart_channel_id": "None",
-            "queue_expiration": "60"
+            "queue_expiration": "60",
+            "autoupdate": "False"
         }
         async with aiosqlite.connect(self.db_path) as conn:
             for key, default in defaults.items():
@@ -365,7 +395,131 @@ class DiscordLLMBot(commands.Bot):
             async with conn.execute("SELECT user_id FROM dm_whitelist") as cursor:
                 return [row[0] for row in await cursor.fetchall()]
 
-    # Utilities
+    @tasks.loop(hours=6)
+    async def autoupdate_check(self):
+        if not self.bot_config.get("autoupdate", False):
+            return
+
+        update_needed = False
+        if getattr(sys, 'frozen', False):
+            if self.github_repo:
+                async with aiohttp.ClientSession() as session:
+                    url = f"https://api.github.com/repos/{self.github_repo}/releases/latest"
+                    async with session.get(url) as resp:
+                        if resp.status == 200:
+                            data = await resp.json()
+                            latest_tag = data.get("tag_name", "")
+                            if latest_tag and latest_tag != self.current_version:
+                                update_needed = True
+        else:
+            process = await asyncio.create_subprocess_shell(
+                "git fetch && git status -sb",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, _ = await process.communicate()
+            if b"behind" in stdout:
+                update_needed = True
+
+        if update_needed:
+            restart_channel = self.bot_config.get("restart_channel_id")
+            channel = self.get_channel(restart_channel) if restart_channel else None
+            await self.perform_update(channel)
+
+    async def perform_update(self, channel=None):
+        if self.shutting_down:
+            return
+
+        self.shutting_down = True
+        if channel:
+            await channel.send("Update initiated. Blocking new processing and waiting for current queue to finish...")
+
+        async with self.global_llm_lock:
+            if channel:
+                await channel.send("Queue cleared. Fetching updates...")
+
+            if getattr(sys, 'frozen', False):
+                if not self.github_repo:
+                    if channel:
+                        await channel.send("Error: GITHUB_REPO not set in .env. Cannot download latest release.")
+                    self.shutting_down = False
+                    return
+
+                system = platform.system().lower()
+                async with aiohttp.ClientSession() as session:
+                    url = f"https://api.github.com/repos/{self.github_repo}/releases/latest"
+                    async with session.get(url) as resp:
+                        if resp.status != 200:
+                            if channel:
+                                await channel.send("Failed to find latest release on GitHub.")
+                            self.shutting_down = False
+                            return
+
+                        data = await resp.json()
+                        assets = data.get("assets", [])
+                        asset_url = None
+                        asset_name = None
+
+                        for asset in assets:
+                            if system in asset["name"].lower():
+                                asset_url = asset["browser_download_url"]
+                                asset_name = asset["name"]
+                                break
+
+                        if not asset_url:
+                            if channel:
+                                await channel.send("Could not find a matching release asset for this OS.")
+                            self.shutting_down = False
+                            return
+
+                        if channel:
+                            await channel.send(f"Downloading new release: {asset_name}...")
+
+                        async with session.get(asset_url) as download_resp:
+                            if download_resp.status == 200:
+                                exe_path = sys.executable
+                                new_exe_path = f"{exe_path}.new"
+                                with open(new_exe_path, 'wb') as f:
+                                    f.write(await download_resp.read())
+
+                                try:
+                                    if os.path.exists(f"{exe_path}.old"):
+                                        os.remove(f"{exe_path}.old")
+                                    shutil.move(exe_path, f"{exe_path}.old")
+                                    shutil.move(new_exe_path, exe_path)
+                                    if system != "windows":
+                                        st = os.stat(exe_path)
+                                        os.chmod(exe_path, st.st_mode | stat.S_IEXEC)
+                                except Exception as e:
+                                    if channel:
+                                        await channel.send(f"Error swapping executable: {e}")
+                                    self.shutting_down = False
+                                    return
+            else:
+                process = await asyncio.create_subprocess_shell(
+                    "git pull",
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate()
+                if process.returncode != 0:
+                    if channel:
+                        await channel.send(f"Git pull failed:\n```\n{stderr.decode()}\n```")
+                    self.shutting_down = False
+                    return
+                else:
+                    if channel:
+                        await channel.send(f"Git pull successful:\n```\n{stdout.decode()}\n```")
+
+            if channel:
+                await self._update_config("restart_channel_id", channel.id)
+                await channel.send("Restarting bot to apply updates...")
+
+            await self.close()
+            if getattr(sys, 'frozen', False):
+                os.execv(sys.executable, sys.argv)
+            else:
+                os.execv(sys.executable, ['python'] + sys.argv)
 
     async def update_bot_presence(self):
         enabled = self.bot_config.get("enabled", False)
@@ -385,7 +539,6 @@ class DiscordLLMBot(commands.Bot):
 
         status_type = discord.Status.online if enabled else discord.Status.idle
 
-        # Hash check to avoid rate limits
         new_hash = hash((status_text, status_type))
         if new_hash != self.current_status_hash:
             await self.change_presence(status=status_type, activity=discord.Game(name=status_text))
@@ -394,9 +547,7 @@ class DiscordLLMBot(commands.Bot):
     async def send_chunked_reply(self, message, text):
         if not text:
             return
-
         mentions = discord.AllowedMentions.none()
-
         for i in range(0, len(text), 1900):
             chunk = text[i:i + 1900]
             try:
@@ -404,12 +555,43 @@ class DiscordLLMBot(commands.Bot):
                     await message.reply(chunk, allowed_mentions=mentions)
                 else:
                     await message.channel.send(chunk, allowed_mentions=mentions)
-
                 if len(text) > 1900:
                     await asyncio.sleep(0.5)
             except discord.HTTPException as e:
                 print(f"Failed to send chunk: {e}")
                 break
+
+    async def send_chunked_message(self, channel, text):
+        if not text:
+            return
+        mentions = discord.AllowedMentions.none()
+        for i in range(0, len(text), 1900):
+            chunk = text[i:i + 1900]
+            try:
+                await channel.send(chunk, allowed_mentions=mentions)
+                if len(text) > 1900:
+                    await asyncio.sleep(0.5)
+            except discord.HTTPException as e:
+                print(f"Failed to send chunk: {e}")
+                break
+
+    async def _resolve_persistent_queue(self):
+        async with aiosqlite.connect(self.db_path) as conn:
+            async with conn.execute('''
+                SELECT channel_id, timestamp
+                FROM history h1
+                WHERE timestamp = (SELECT MAX(timestamp) FROM history h2 WHERE h1.channel_id = h2.channel_id)
+                AND role = 'user'
+            ''') as cursor:
+                rows = await cursor.fetchall()
+
+        for channel_id, timestamp_str in rows:
+            try:
+                msg_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).timestamp()
+                if time.time() - msg_time < self.bot_config.get("queue_expiration", 60):
+                    asyncio.create_task(self.process_llm_queue(channel_id, msg_time, original_message=None))
+            except Exception as e:
+                print(f"Failed to process persistent queue for channel {channel_id}: {e}")
 
     async def on_ready(self):
         print(f'Logged in as {self.user}')
@@ -426,7 +608,82 @@ class DiscordLLMBot(commands.Bot):
             finally:
                 await self._update_config("restart_channel_id", None)
 
-    # Message Processing
+        await self._resolve_persistent_queue()
+
+    async def process_llm_queue(self, channel_id, received_timestamp, original_message=None):
+        async with self.global_llm_lock:
+            expiration = self.bot_config.get("queue_expiration", 60)
+            if time.time() - received_timestamp > expiration:
+                if original_message:
+                    try:
+                        await original_message.remove_reaction('⏳', self.user)
+                        await original_message.add_reaction('⚰')
+                    except discord.HTTPException:
+                        pass
+                return
+
+            channel = self.get_channel(channel_id) or await self.fetch_channel(channel_id)
+            if not channel:
+                return
+
+            async def keep_typing_loop():
+                try:
+                    while True:
+                        async with channel.typing():
+                            await asyncio.sleep(8)
+                except asyncio.CancelledError:
+                    pass
+
+            typing_task = asyncio.create_task(keep_typing_loop())
+
+            try:
+                history = await self._get_history(channel_id)
+                api_messages = [{"role": "system", "content": self.bot_config["system_prompt"]}]
+
+                current_char_count = len(self.bot_config["system_prompt"])
+                for msg in reversed(history):
+                    if current_char_count + len(msg["content"]) > 12000:
+                        break
+
+                    if len(api_messages) > 1 and api_messages[1]["role"] == msg["role"]:
+                        api_messages[1]["content"] = f"{msg['content']}\n{api_messages[1]['content']}"
+                    else:
+                        api_messages.insert(1, {"role": msg["role"], "content": msg["content"]})
+
+                    current_char_count += len(msg["content"])
+
+                response = await self.client.chat.completions.create(
+                    model="local-model",
+                    messages=api_messages
+                )
+
+                bot_reply = response.choices[0].message.content
+                await self._add_to_history(channel_id, "assistant", bot_reply)
+
+                clean_reply = bot_reply.replace(f"[{self.target_user}]:", "").strip()
+
+                if original_message:
+                    await self.send_chunked_reply(original_message, clean_reply)
+                else:
+                    await self.send_chunked_message(channel, clean_reply)
+
+                self.bot_stats["messages_processed"] += 1
+
+            except Exception as e:
+                self.bot_stats["errors"] += 1
+                await self._pop_last_history(channel_id)
+                if original_message:
+                    await original_message.reply(f"Error: {e}")
+                else:
+                    await channel.send(f"Error: {e}")
+
+            finally:
+                typing_task.cancel()
+                if original_message:
+                    try:
+                        await original_message.remove_reaction('⏳', self.user)
+                    except discord.HTTPException:
+                        pass
 
     async def on_message(self, message):
         if message.author == self.user:
@@ -453,7 +710,6 @@ class DiscordLLMBot(commands.Bot):
         should_reply = (is_mentioned or self.bot_config["reply_any_message"] or is_dm) and self.bot_config["enabled"]
         should_track = self.bot_config["track_non_mentions"]
 
-        # Formatting logic for the message
         clean_input = message.content.replace(f'<@{self.user.id}>', '').replace(f'<@!{self.user.id}>', '').strip()
         if not clean_input and message.attachments:
             clean_input = "[Sent an attachment]"
@@ -463,81 +719,28 @@ class DiscordLLMBot(commands.Bot):
 
         formatted_input = f"[{message.author.name}]: {clean_input}"
 
+        if self.shutting_down:
+            if should_reply:
+                await self._add_to_history(message.channel.id, "user", formatted_input)
+                try:
+                    await message.reply("[Queued for processing after update]")
+                except discord.HTTPException:
+                    pass
+            elif should_track:
+                await self._add_to_history(message.channel.id, "user", formatted_input)
+            return
+
         if should_reply:
-            # 1. Immediate visual feedback
             try:
                 await message.add_reaction('⏳')
             except discord.HTTPException:
                 pass
 
-            # 2. Global lock to protect hardware
+            await self._add_to_history(message.channel.id, "user", formatted_input)
             received_at = time.time()
-            async with self.global_llm_lock:
-                # Check for queue expiration
-                expiration = self.bot_config.get("queue_expiration", 60)
-                if time.time() - received_at > expiration:
-                    try:
-                        await message.remove_reaction('⏳', self.user)
-                        await message.add_reaction('⚰')
-                    except discord.HTTPException:
-                        pass
-                    return
-
-                await self._add_to_history(message.channel.id, "user", formatted_input)
-
-                async def keep_typing_loop():
-                    try:
-                        while True:
-                            async with message.channel.typing():
-                                await asyncio.sleep(8)
-                    except asyncio.CancelledError:
-                        pass
-
-                typing_task = asyncio.create_task(keep_typing_loop())
-
-                try:
-                    history = await self._get_history(message.channel.id)
-                    api_messages = [{"role": "system", "content": self.bot_config["system_prompt"]}]
-
-                    current_char_count = len(self.bot_config["system_prompt"])
-                    for msg in reversed(history):
-                        if current_char_count + len(msg["content"]) > 12000:
-                            break
-
-                        if len(api_messages) > 1 and api_messages[1]["role"] == msg["role"]:
-                            api_messages[1]["content"] = f"{msg['content']}\n{api_messages[1]['content']}"
-                        else:
-                            api_messages.insert(1, {"role": msg["role"], "content": msg["content"]})
-
-                        current_char_count += len(msg["content"])
-
-                    response = await self.client.chat.completions.create(
-                        model="local-model",
-                        messages=api_messages
-                    )
-
-                    bot_reply = response.choices[0].message.content
-                    await self._add_to_history(message.channel.id, "assistant", bot_reply)
-
-                    clean_reply = bot_reply.replace(f"[{self.target_user}]:", "").strip()
-                    await self.send_chunked_reply(message, clean_reply)
-                    self.bot_stats["messages_processed"] += 1
-
-                except Exception as e:
-                    self.bot_stats["errors"] += 1
-                    await self._pop_last_history(message.channel.id)
-                    await message.reply(f"Error: {e}")
-
-                finally:
-                    typing_task.cancel()
-                    # 3. Clean up reaction
-                    try:
-                        await message.remove_reaction('⏳', self.user)
-                    except discord.HTTPException:
-                        pass
+            asyncio.create_task(self.process_llm_queue(message.channel.id, received_at, original_message=message))
 
         elif should_track:
-            # Passive tracking happens outside locks to keep the DB updated without blocking
             await self._add_to_history(message.channel.id, "user", formatted_input)
 
 
