@@ -1,7 +1,6 @@
 .env
 /processed
 **/**/__pycache__
-docs/TODO.md
 changes.patch
 *.zip
 *.db
