@@ -8,6 +8,7 @@ import platform
 import aiohttp
 import shutil
 import stat
+import zipfile
 from datetime import datetime, timezone
 from discord.ext import commands, tasks
 from openai import AsyncOpenAI
@@ -461,38 +462,66 @@ class DiscordLLMBot(commands.Bot):
                         asset_name = None
 
                         for asset in assets:
-                            if system in asset["name"].lower():
+                            if system in asset["name"].lower() and asset["name"].lower().endswith(".zip"):
                                 asset_url = asset["browser_download_url"]
                                 asset_name = asset["name"]
                                 break
 
                         if not asset_url:
                             if channel:
-                                await channel.send("Could not find a matching release asset for this OS.")
+                                await channel.send("Could not find a matching zip release asset for this OS.")
                             self.shutting_down = False
                             return
 
                         if channel:
-                            await channel.send(f"Downloading new release: {asset_name}...")
+                            await channel.send(f"Downloading new release package: {asset_name}...")
 
                         async with session.get(asset_url) as download_resp:
                             if download_resp.status == 200:
-                                exe_path = sys.executable
-                                new_exe_path = f"{exe_path}.new"
-                                with open(new_exe_path, 'wb') as f:
+                                zip_path = "update_package.zip"
+                                with open(zip_path, 'wb') as f:
                                     f.write(await download_resp.read())
 
                                 try:
-                                    if os.path.exists(f"{exe_path}.old"):
-                                        os.remove(f"{exe_path}.old")
-                                    shutil.move(exe_path, f"{exe_path}.old")
-                                    shutil.move(new_exe_path, exe_path)
-                                    if system != "windows":
-                                        st = os.stat(exe_path)
-                                        os.chmod(exe_path, st.st_mode | stat.S_IEXEC)
+                                    extract_dir = "update_extracted"
+                                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                                        zip_ref.extractall(extract_dir)
+
+                                    source_dir = extract_dir
+                                    if len(os.listdir(extract_dir)) == 1 and os.path.isdir(os.path.join(extract_dir, os.listdir(extract_dir)[0])):
+                                        source_dir = os.path.join(extract_dir, os.listdir(extract_dir)[0])
+
+                                    exe_path = sys.executable
+                                    exe_name = os.path.basename(exe_path)
+
+                                    for root, dirs, files in os.walk(source_dir):
+                                        rel_path = os.path.relpath(root, source_dir)
+                                        target_dir = os.path.join(os.getcwd(), rel_path) if rel_path != "." else os.getcwd()
+
+                                        os.makedirs(target_dir, exist_ok=True)
+
+                                        for file in files:
+                                            src_file = os.path.join(root, file)
+                                            if file == exe_name or (file.startswith("SoulClone") and "exe" in file):
+                                                new_exe_path = f"{exe_path}.new"
+                                                shutil.copy2(src_file, new_exe_path)
+                                                if os.path.exists(f"{exe_path}.old"):
+                                                    os.remove(f"{exe_path}.old")
+                                                shutil.move(exe_path, f"{exe_path}.old")
+                                                shutil.move(new_exe_path, exe_path)
+                                                if system != "windows":
+                                                    st = os.stat(exe_path)
+                                                    os.chmod(exe_path, st.st_mode | stat.S_IEXEC)
+                                            else:
+                                                target_file = os.path.join(target_dir, file)
+                                                shutil.copy2(src_file, target_file)
+
+                                    shutil.rmtree(extract_dir)
+                                    os.remove(zip_path)
+
                                 except Exception as e:
                                     if channel:
-                                        await channel.send(f"Error swapping executable: {e}")
+                                        await channel.send(f"Error during extraction and file swap: {e}")
                                     self.shutting_down = False
                                     return
             else:

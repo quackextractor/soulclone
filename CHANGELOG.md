@@ -4,6 +4,10 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.8.0] - 2026-04-12
+### Added
+- **Full ZIP Extraction for Autoupdater**: Modified the frozen autoupdate logic to correctly identify, download, and extract the versioned `.zip` packages produced by the CI/CD pipeline. The bot now copies supplementary directories (like `docs` and `notebooks`) and external config files to the working directory alongside swapping the main executable.
+
 ## [2.7.0] - 2026-04-12
 ### Added
 - **Automated Update System**: Added a background task and `;update` / `;autoupdate` commands to automatically fetch the latest GitHub release (for compiled binaries) or execute `git pull` (for source scripts) without disrupting active users.
