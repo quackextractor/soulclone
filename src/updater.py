@@ -12,15 +12,15 @@ import subprocess
 def toggle_autoupdate_env(new_state: bool):
     env_path = ".env"
     if not os.path.exists(env_path):
-        with open(env_path, "w") as f:
+        with open(env_path, "w", encoding="utf-8") as f:
             f.write(f"AUTOUPDATE={str(new_state)}\n")
         return
 
-    with open(env_path, "r") as f:
+    with open(env_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
 
     found = False
-    with open(env_path, "w") as f:
+    with open(env_path, "w", encoding="utf-8") as f:
         for line in lines:
             if line.startswith("AUTOUPDATE="):
                 f.write(f"AUTOUPDATE={str(new_state)}\n")
@@ -29,6 +29,18 @@ def toggle_autoupdate_env(new_state: bool):
                 f.write(line)
         if not found:
             f.write(f"AUTOUPDATE={str(new_state)}\n")
+
+
+def cleanup_old_executables():
+    """Silently cleans up leftover .old files from previous updates upon successful boot."""
+    if getattr(sys, 'frozen', False):
+        exe_path = sys.executable
+        old_path = f"{exe_path}.old"
+        if os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except Exception:
+                pass
 
 
 async def check_for_updates(github_repo, current_version):
@@ -79,6 +91,7 @@ async def run_update(github_repo, log_callback=None):
                 assets = data.get("assets", [])
                 asset_url = None
                 asset_name = None
+                latest_tag = data.get("tag_name", "")
 
                 for asset in assets:
                     if system in asset["name"].lower() and asset["name"].lower().endswith(".zip"):
@@ -118,7 +131,8 @@ async def run_update(github_repo, log_callback=None):
 
                                 for file in files:
                                     src_file = os.path.join(root, file)
-                                    if file == exe_name or (file.startswith("SoulClone") and "exe" in file):
+                                    # FIXED: Cross-platform executable detection
+                                    if file == exe_name or (file.startswith("SoulClone") and (system == "windows" and "exe" in file or system != "windows")):
                                         new_exe_path = f"{exe_path}.new"
                                         shutil.copy2(src_file, new_exe_path)
                                         if os.path.exists(f"{exe_path}.old"):
@@ -133,10 +147,32 @@ async def run_update(github_repo, log_callback=None):
                                             os.chmod(exe_path, st.st_mode | stat.S_IEXEC)
                                     else:
                                         target_file = os.path.join(target_dir, file)
+
+                                        # Protect existing config.yaml from being overwritten by the update package
+                                        if file == "config.yaml" and os.path.exists(target_file):
+                                            target_file = target_file + ".update"
+
                                         shutil.copy2(src_file, target_file)
 
                             shutil.rmtree(extract_dir)
                             os.remove(zip_path)
+
+                            # CRITICAL FIX: Patch the .env file with the new version to prevent infinite update loops
+                            if latest_tag:
+                                env_path = ".env"
+                                if os.path.exists(env_path):
+                                    with open(env_path, "r", encoding="utf-8") as f:
+                                        lines = f.readlines()
+                                    found = False
+                                    with open(env_path, "w", encoding="utf-8") as f:
+                                        for line in lines:
+                                            if line.startswith("CURRENT_VERSION="):
+                                                f.write(f'CURRENT_VERSION="{latest_tag}"\n')
+                                                found = True
+                                            else:
+                                                f.write(line)
+                                        if not found:
+                                            f.write(f'CURRENT_VERSION="{latest_tag}"\n')
 
                         except Exception as e:
                             await log(f"Error during extraction and file swap: {e}")
@@ -160,13 +196,10 @@ async def run_update(github_repo, log_callback=None):
 def restart_process():
     """
     A completely detached approach to restarting PyInstaller apps.
-    Writes a temporary batch/bash script that waits for the parent to die,
+    Writes a temporary script that waits for the parent to die,
     cleans up any .old files, and launches the app fresh.
-    This avoids ALL PyInstaller _MEIPASS lock and Cryptodome C-extension bugs.
     """
     system = platform.system().lower()
-
-    # Retrieve launch arguments
     args = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "bot"
 
     if getattr(sys, 'frozen', False):
@@ -181,33 +214,35 @@ def restart_process():
             script_path = os.path.join(exe_dir, "restart_helper.bat")
             with open(script_path, "w") as f:
                 f.write("@echo off\n")
+                f.write(f'cd /d "{exe_dir}"\n')  # CRITICAL: Ensure correct working directory
                 f.write("timeout /t 3 /nobreak > NUL\n")
                 f.write(f'if exist "{old_exe_path}" del /f /q "{old_exe_path}"\n')
-                f.write(f'start "" "{exe_path}" {args}\n')
+                f.write(f'start "" /D "{exe_dir}" "{exe_path}" {args}\n')  # CRITICAL: Start directory
                 f.write('del "%~f0"\n')
 
+            # FIXED: Pass as a single string to avoid quote-stripping issues in cmd.exe
             subprocess.Popen(
-                [script_path],
+                f'"{script_path}"',
                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                cwd=exe_dir,
                 shell=True
             )
         else:
             script_path = os.path.join(exe_dir, "restart_helper.sh")
             with open(script_path, "w") as f:
                 f.write("#!/bin/bash\n")
+                f.write(f'cd "{exe_dir}"\n')
                 f.write("sleep 3\n")
                 f.write(f'rm -f "{old_exe_path}"\n')
                 f.write(f'nohup "{exe_path}" {args} > /dev/null 2>&1 &\n')
                 f.write('rm -- "$0"\n')
 
             os.chmod(script_path, 0o755)
-            subprocess.Popen([script_path], preexec_fn=os.setpgrp)
+            subprocess.Popen([script_path], preexec_fn=os.setpgrp, cwd=exe_dir)
     else:
-        # Running in standard Python, just detach new python process
         if system == "windows":
             subprocess.Popen([sys.executable] + sys.argv, creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
         else:
             subprocess.Popen([sys.executable] + sys.argv, preexec_fn=os.setpgrp)
 
-    # Hard exit immediately to clear file locks and let OS cleanup
     os._exit(0)

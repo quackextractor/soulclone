@@ -9,7 +9,8 @@ from discord.ext import commands, tasks
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
-from src.updater import toggle_autoupdate_env, check_for_updates, run_update, restart_process
+# FIXED: Imported cleanup_old_executables
+from src.updater import toggle_autoupdate_env, check_for_updates, run_update, restart_process, cleanup_old_executables
 
 
 def is_admin():
@@ -281,6 +282,8 @@ class DiscordLLMBot(commands.Bot):
         }
 
     async def setup_hook(self):
+        # FIXED: Call cleanup on successful boot
+        cleanup_old_executables()
         await self._init_db()
         await self._load_config()
         await self.add_cog(BotCommands(self))

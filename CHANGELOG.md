@@ -4,6 +4,13 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.3] - 2026-04-12
+### Fixed
+- **Infinite Update Loops**: The updater now correctly patches the `.env` file with the latest `CURRENT_VERSION` tag from GitHub immediately after extraction, preventing the bot from re-triggering the update process every time it restarts.
+- **Windows Restart Command Parsing**: Resolved a regression where `subprocess.Popen` would fail to launch the restart batch script on certain Windows environments due to quote-stripping; the script path is now passed as a properly wrapped raw string.
+- **Cross-Platform Binary Detection**: Relaxed the file-swap logic in `updater.py` to identify the bot executable by name rather than just extension, ensuring update compatibility for Linux and macOS users.
+- **Redundant Artifact Cleanup**: Integrated `cleanup_old_executables` directly into the Discord bot's `setup_hook` as a secondary safety measure, ensuring leftover `.old` binaries are scrubbed even if the detached helper script is interrupted.
+
 ## [2.9.2] - 2026-04-12
 ### Fixed
 - **PyInstaller Restart Crashes**: Resolved `Cryptodome.Hash` C-extension missing file errors during binary restarts. The application now uses a Detached Launcher Script (`restart_helper.bat`/`.sh`) to cleanly sever the PyInstaller parent-child relationship, preventing `_MEIPASS` directory corruption.
