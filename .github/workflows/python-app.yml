@@ -1,0 +1,88 @@
+name: Python application
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+        cache: 'pip'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        if [ -f requirements-dev.txt ]; then pip install -r requirements-dev.txt; fi
+
+    - name: Lint with flake8
+      run: |
+        flake8 .
+
+    - name: Test with pytest (if tests exist)
+      run: |
+        if [ -d tests ]; then pytest; else echo "No tests directory found, skipping."; fi
+      env:
+        PYTHONPATH: .
+
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.get_version.outputs.VERSION }}
+      is_new: ${{ steps.check_release.outputs.IS_NEW }}
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Get latest version from CHANGELOG
+      id: get_version
+      run: |
+        VERSION=$(grep -m 1 '^## \[' CHANGELOG.md | sed -E 's/## \[([^]]+)\].*/\1/')
+        echo "Found version: $VERSION"
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Check if release already exists
+      id: check_release
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        if gh release view "v${{ steps.get_version.outputs.VERSION }}" > /dev/null 2>&1; then
+          echo "Release v${{ steps.get_version.outputs.VERSION }} already exists. Skipping."
+          echo "IS_NEW=false" >> $GITHUB_OUTPUT
+        else
+          echo "New version detected. Will create release v${{ steps.get_version.outputs.VERSION }}."
+          echo "IS_NEW=true" >> $GITHUB_OUTPUT
+        fi
+
+  release:
+    needs: [build, check-version]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master') && needs.check-version.outputs.is_new == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v2
+      with:
+        tag_name: "v${{ needs.check-version.outputs.version }}"
+        name: "Version ${{ needs.check-version.outputs.version }}"
+        generate_release_notes: true

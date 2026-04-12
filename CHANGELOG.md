@@ -4,6 +4,13 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.2.0] - 2026-04-12
+### Added
+- Integrated **pre-commit** hooks for automated linting (flake8, autopep8).
+- Automated **versioning system** linking `CHANGELOG.md` to `README.md` badges.
+- **GitHub Actions** workflow for automated releases based on changelog updates.
+- Centralized `.flake8` configuration for consistent code style.
+
 ## [2.1.0] - 2026-04-11
 
 ### Added

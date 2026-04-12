@@ -6,20 +6,22 @@ from src.preprocess import process_discord_logs
 from src.sampler import generate_samples
 from src.discord_bot import run_bot
 
+
 def setup_logging():
-    """Sets up global console logging.""" 
+    """Sets up global console logging."""
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
     c_handler = logging.StreamHandler()
     c_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
     logger.addHandler(c_handler)
 
+
 def main():
     setup_logging()
 
     parser = argparse.ArgumentParser(
         description=(
-            "Discord Persona: Unified CLI Tool\n\n" 
+            "Discord Persona: Unified CLI Tool\n\n"
             "Available Commands:\n"
             "  python main.py preprocess    # Run the local data pipeline\n"
             "  python main.py sample        # Extract a small jsonl sample\n"
@@ -28,13 +30,13 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    subparsers = parser.add_subparsers(dest="command", help="Available commands") 
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
     subparsers.required = True
 
     # Command: preprocess
     preprocess_parser = subparsers.add_parser(
         "preprocess",
-        help="Process raw Discord CSV exports into a fine-tuning dataset JSONL file", 
+        help="Process raw Discord CSV exports into a fine-tuning dataset JSONL file",
     )
     preprocess_parser.add_argument(
         "--sample",
@@ -64,11 +66,11 @@ def main():
     if args.command == "preprocess":
         logging.info("Starting local preprocessing pipeline...")
         process_discord_logs()
-        
+
         if args.sample:
             logging.info("Generating data samples...")
             generate_samples()
-            
+
     elif args.command == "sample":
         logging.info("Generating data samples...")
         generate_samples()
@@ -76,6 +78,7 @@ def main():
     elif args.command == "bot":
         logging.info("Starting the Discord bot...")
         run_bot()
+
 
 if __name__ == "__main__":
     main()

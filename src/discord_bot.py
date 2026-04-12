@@ -9,6 +9,8 @@ from openai import AsyncOpenAI
 from dotenv import load_dotenv
 
 # Admin Check Decorator
+
+
 def is_admin():
     async def predicate(ctx):
         if ctx.author.name == ctx.bot.admin_user:
@@ -18,6 +20,8 @@ def is_admin():
     return commands.check(predicate)
 
 # Commands Cog
+
+
 class BotCommands(commands.Cog):
     def __init__(self, bot):
         self.bot = bot
@@ -38,9 +42,9 @@ class BotCommands(commands.Cog):
         uptime = int(time.time() - self.bot.bot_stats["start_time"])
         mins, secs = divmod(uptime, 60)
         hours, mins = divmod(mins, 60)
-        
+
         history = await self.bot._get_history(ctx.channel.id)
-        
+
         embed = discord.Embed(title="Bot Statistics", color=discord.Color.blue())
         embed.add_field(name="Uptime", value=f"{hours}h {mins}m {secs}s", inline=False)
         embed.add_field(name="Messages Seen", value=str(self.bot.bot_stats["messages_seen"]), inline=True)
@@ -58,7 +62,7 @@ class BotCommands(commands.Cog):
         embed.add_field(name="Track Non-Mentions", value=str(self.bot.bot_config["track_non_mentions"]), inline=True)
         embed.add_field(name="Bot Enabled", value=str(self.bot.bot_config["enabled"]), inline=True)
         embed.add_field(name="Any Message Mode", value=str(self.bot.bot_config["reply_any_message"]), inline=True)
-        
+
         channel_name = "None (Any)"
         allowed_id = self.bot.bot_config["allowed_channel_id"]
         if allowed_id:
@@ -67,15 +71,15 @@ class BotCommands(commands.Cog):
                 channel_name = f"#{channel.name}" if hasattr(channel, 'name') else str(allowed_id)
             except (discord.NotFound, discord.HTTPException):
                 channel_name = f"Unknown Channel ID ({allowed_id})"
-                
+
         embed.add_field(name="Restricted Channel", value=channel_name, inline=True)
         embed.add_field(name="LLM Endpoint", value=self.bot.base_url, inline=False)
-        
+
         prompt_text = self.bot.bot_config.get("system_prompt", "None")
         if len(prompt_text) > 1000:
             prompt_text = prompt_text[:1000] + "... [Truncated]"
         embed.add_field(name="Current System Prompt", value=f"```\n{prompt_text}\n```", inline=False)
-        
+
         await ctx.send(embed=embed)
 
     @commands.command(name="sp", aliases=["set_prompt", "prompt"], help="[Admin] Set system prompt. (;sp <prompt>)")
@@ -152,16 +156,18 @@ class BotCommands(commands.Cog):
         sys.exit(0)
 
 # Main Bot Class
+
+
 class DiscordLLMBot(commands.Bot):
     def __init__(self):
         load_dotenv()
-        
+
         self.target_user = os.getenv("TARGET_USER")
         self.bot_token = os.getenv("DISCORD_BOT_TOKEN")
         self.base_url = os.getenv("LM_STUDIO_URL", "http://localhost:1234/v1")
         self.api_key = os.getenv("LM_STUDIO_API_KEY", "lm-studio")
         self.admin_user = os.getenv("ADMIN_USER")
-        
+
         if not self.bot_token or not self.target_user:
             print("Error: DISCORD_BOT_TOKEN and TARGET_USER must be set in your .env file.")
             sys.exit(1)
@@ -170,13 +176,13 @@ class DiscordLLMBot(commands.Bot):
 
         intents = discord.Intents.default()
         intents.message_content = True
-        
+
         super().__init__(command_prefix=";", intents=intents)
 
         self.client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
         self.global_llm_lock = asyncio.Lock()
         self.db_path = "bot_data.db"
-        
+
         self.bot_config = {}
         self.bot_stats = {
             "start_time": time.time(),
@@ -194,9 +200,9 @@ class DiscordLLMBot(commands.Bot):
 
     async def _init_db(self):
         async with aiosqlite.connect(self.db_path) as conn:
-            await conn.execute('''CREATE TABLE IF NOT EXISTS config 
+            await conn.execute('''CREATE TABLE IF NOT EXISTS config
                             (key TEXT PRIMARY KEY, value TEXT)''')
-            await conn.execute('''CREATE TABLE IF NOT EXISTS history 
+            await conn.execute('''CREATE TABLE IF NOT EXISTS history
                             (channel_id INTEGER, role TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
             await conn.commit()
 
@@ -210,16 +216,16 @@ class DiscordLLMBot(commands.Bot):
             "system_prompt": self.system_prompt_default,
             "restart_channel_id": "None"
         }
-        
+
         async with aiosqlite.connect(self.db_path) as conn:
             for key, default in defaults.items():
                 async with conn.execute("SELECT value FROM config WHERE key = ?", (key,)) as cursor:
                     row = await cursor.fetchone()
                     val_str = row[0] if row else default
-                    
+
                     if not row:
                         await conn.execute("INSERT INTO config (key, value) VALUES (?, ?)", (key, default))
-                
+
                 if val_str in ("True", "False"):
                     self.bot_config[key] = (val_str == "True")
                 elif key == "max_history":
@@ -250,7 +256,7 @@ class DiscordLLMBot(commands.Bot):
         async with aiosqlite.connect(self.db_path) as conn:
             for key, default in defaults.items():
                 await conn.execute("UPDATE config SET value = ? WHERE key = ?", (default, key))
-                
+
                 if default in ("True", "False"):
                     self.bot_config[key] = (default == "True")
                 elif key == "max_history":
@@ -265,8 +271,8 @@ class DiscordLLMBot(commands.Bot):
         max_h = self.bot_config["max_history"]
         async with aiosqlite.connect(self.db_path) as conn:
             async with conn.execute("""SELECT role, content FROM (
-                                SELECT role, content, timestamp FROM history 
-                                WHERE channel_id = ? 
+                                SELECT role, content, timestamp FROM history
+                                WHERE channel_id = ?
                                 ORDER BY timestamp DESC LIMIT ?
                               ) ORDER BY timestamp ASC""", (channel_id, max_h)) as cursor:
                 return [{"role": row[0], "content": row[1]} for row in await cursor.fetchall()]
@@ -274,7 +280,7 @@ class DiscordLLMBot(commands.Bot):
     async def _add_to_history(self, channel_id, role, content):
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.execute("INSERT INTO history (channel_id, role, content) VALUES (?, ?, ?)",
-                         (channel_id, role, content))
+                               (channel_id, role, content))
             await conn.commit()
 
     async def _pop_last_history(self, channel_id):
@@ -296,9 +302,9 @@ class DiscordLLMBot(commands.Bot):
     async def send_chunked_reply(self, message, text):
         if not text:
             return
-        
+
         mentions = discord.AllowedMentions.none()
-        
+
         for i in range(0, len(text), 1900):
             chunk = text[i:i + 1900]
             try:
@@ -306,7 +312,7 @@ class DiscordLLMBot(commands.Bot):
                     await message.reply(chunk, allowed_mentions=mentions)
                 else:
                     await message.channel.send(chunk, allowed_mentions=mentions)
-                
+
                 if len(text) > 1900:
                     await asyncio.sleep(0.5)
             except discord.HTTPException as e:
@@ -316,7 +322,7 @@ class DiscordLLMBot(commands.Bot):
     async def on_ready(self):
         print(f'Logged in as {self.user}')
         await self.update_bot_presence()
-        
+
         restart_channel_id = self.bot_config.get("restart_channel_id")
         if restart_channel_id:
             try:
@@ -333,7 +339,7 @@ class DiscordLLMBot(commands.Bot):
     async def on_message(self, message):
         if message.author == self.user:
             return
-            
+
         self.bot_stats["messages_seen"] += 1
 
         if message.content.startswith(self.command_prefix):
@@ -356,10 +362,10 @@ class DiscordLLMBot(commands.Bot):
         clean_input = message.content.replace(f'<@{self.user.id}>', '').replace(f'<@!{self.user.id}>', '').strip()
         if not clean_input and message.attachments:
             clean_input = "[Sent an attachment]"
-        
+
         if not clean_input:
             return
-            
+
         formatted_input = f"[{message.author.name}]: {clean_input}"
 
         if should_reply:
@@ -367,12 +373,12 @@ class DiscordLLMBot(commands.Bot):
             try:
                 await message.add_reaction('⏳')
             except discord.HTTPException:
-                pass 
+                pass
 
             # 2. Global lock to protect hardware
             async with self.global_llm_lock:
                 await self._add_to_history(message.channel.id, "user", formatted_input)
-                
+
                 async def keep_typing_loop():
                     try:
                         while True:
@@ -380,23 +386,23 @@ class DiscordLLMBot(commands.Bot):
                                 await asyncio.sleep(8)
                     except asyncio.CancelledError:
                         pass
-                
+
                 typing_task = asyncio.create_task(keep_typing_loop())
-                
+
                 try:
                     history = await self._get_history(message.channel.id)
                     api_messages = [{"role": "system", "content": self.bot_config["system_prompt"]}]
-                    
+
                     current_char_count = len(self.bot_config["system_prompt"])
                     for msg in reversed(history):
                         if current_char_count + len(msg["content"]) > 12000:
                             break
-                        
+
                         if len(api_messages) > 1 and api_messages[1]["role"] == msg["role"]:
                             api_messages[1]["content"] = f"{msg['content']}\n{api_messages[1]['content']}"
                         else:
                             api_messages.insert(1, {"role": msg["role"], "content": msg["content"]})
-                            
+
                         current_char_count += len(msg["content"])
 
                     response = await self.client.chat.completions.create(
@@ -406,7 +412,7 @@ class DiscordLLMBot(commands.Bot):
 
                     bot_reply = response.choices[0].message.content
                     await self._add_to_history(message.channel.id, "assistant", bot_reply)
-                    
+
                     clean_reply = bot_reply.replace(f"[{self.target_user}]:", "").strip()
                     await self.send_chunked_reply(message, clean_reply)
                     self.bot_stats["messages_processed"] += 1
@@ -415,7 +421,7 @@ class DiscordLLMBot(commands.Bot):
                     self.bot_stats["errors"] += 1
                     await self._pop_last_history(message.channel.id)
                     await message.reply(f"Error: {e}")
-                
+
                 finally:
                     typing_task.cancel()
                     # 3. Clean up reaction
@@ -423,14 +429,16 @@ class DiscordLLMBot(commands.Bot):
                         await message.remove_reaction('⏳', self.user)
                     except discord.HTTPException:
                         pass
-        
+
         elif should_track:
             # Passive tracking happens outside locks to keep the DB updated without blocking
             await self._add_to_history(message.channel.id, "user", formatted_input)
 
+
 def run_bot():
     bot = DiscordLLMBot()
     bot.run(bot.bot_token)
+
 
 if __name__ == "__main__":
     run_bot()

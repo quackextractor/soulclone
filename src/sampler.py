@@ -10,6 +10,7 @@ from tqdm import tqdm
 # Load environment variables
 load_dotenv()
 
+
 def generate_samples():
     # Load configuration
     with open("config.yaml", "r", encoding="utf-8") as f:
@@ -20,12 +21,12 @@ def generate_samples():
     samples_file = os.path.join(output_dir, config["files"]["samples"])
     target_total = config["sampling"]["target_total_samples"]
     force_balanced = config["sampling"].get("force_balanced", False)
-    
+
     # Load Response Distribution Settings
     dist_config = config["sampling"].get("response_distribution", {})
     short_max = dist_config.get("short_max_words", 5)
     medium_max = dist_config.get("medium_max_words", 20)
-    
+
     short_pct = dist_config.get("short_target_pct", 0.40)
     medium_pct = dist_config.get("medium_target_pct", 0.40)
     long_pct = dist_config.get("long_target_pct", 0.20)
@@ -42,38 +43,40 @@ def generate_samples():
     # OPTIMIZATION: Byte-Offset Reservoir Scanning (0% RAM Crash Risk)
     lang_buckets = {}
     print("Categorizing and bucketing data (Memory-Optimized)...")
-    
+
     with open(dataset_file, 'rb') as f:
         pbar = tqdm(total=total_lines, desc="Bucketing Offsets", unit="lines")
         while True:
             offset = f.tell()
             line = f.readline()
-            if not line: break
+            if not line:
+                break
             pbar.update(1)
-            
-            if not line.strip(): continue
-            
+
+            if not line.strip():
+                continue
+
             item = json.loads(line.decode('utf-8'))
             lang = item.get("language", "Unknown")
             if lang not in lang_buckets:
                 lang_buckets[lang] = {"short": [], "medium": [], "long": []}
-            
+
             messages = item.get("messages", [])
             word_count = 0
-            
+
             # Calculate length of the target assistant response
             for msg in reversed(messages):
                 if msg["role"] == "assistant":
                     content_clean = re.sub(r'^\[.*?\]:\s*', '', msg["content"])
                     word_count = len(content_clean.split())
                     break
-                    
+
             bucket = "long"
             if word_count <= short_max:
                 bucket = "short"
             elif word_count <= medium_max:
                 bucket = "medium"
-                
+
             lang_buckets[lang][bucket].append(offset)
         pbar.close()
 
@@ -82,22 +85,22 @@ def generate_samples():
     remaining_target = target_total
     remaining_langs = list(lang_counts.keys())
     lang_quotas = {lang: 0 for lang in remaining_langs}
-    
+
     # Distribute the target quota fairly to balance minority languages
     while remaining_langs and remaining_target > 0:
         avg_quota = remaining_target // len(remaining_langs)
-        small_langs = [l for l in remaining_langs if lang_counts[l] < avg_quota]
-        
+        small_langs = [lang for lang in remaining_langs if lang_counts[lang] < avg_quota]
+
         if small_langs:
             # If a language has fewer messages than the average quota, take all of them
-            for l in small_langs:
-                lang_quotas[l] = lang_counts[l]
-                remaining_target -= lang_counts[l]
-                remaining_langs.remove(l)
+            for lang in small_langs:
+                lang_quotas[lang] = lang_counts[lang]
+                remaining_target -= lang_counts[lang]
+                remaining_langs.remove(lang)
         else:
             # Distribute evenly among remaining large languages
-            for l in remaining_langs:
-                lang_quotas[l] += avg_quota
+            for lang in remaining_langs:
+                lang_quotas[lang] += avg_quota
                 remaining_target -= avg_quota
             # Handle remainder division
             for i in range(remaining_target):
@@ -106,7 +109,7 @@ def generate_samples():
             break
 
     sampled_offsets = []
-    
+
     # Initialize sample stats with bottleneck analysis securely pinned to the top
     sample_stats = {
         "bottleneck_analysis": {
@@ -136,20 +139,21 @@ def generate_samples():
 
     # Sample within each language block to enforce length rules
     for lang, quota in lang_quotas.items():
-        if quota == 0: continue
-        
+        if quota == 0:
+            continue
+
         buckets = lang_buckets[lang]
         random.shuffle(buckets["short"])
         random.shuffle(buckets["medium"])
         random.shuffle(buckets["long"])
-        
+
         lang_sampled = []
 
         # Analyze capacity bounds
         short_avail = len(buckets["short"])
         medium_avail = len(buckets["medium"])
         long_avail = len(buckets["long"])
-        
+
         short_ideal = int(quota * short_pct)
         medium_ideal = int(quota * medium_pct)
         long_ideal = quota - short_ideal - medium_ideal
@@ -159,21 +163,21 @@ def generate_samples():
             max_short = short_avail / short_pct if short_pct > 0 else float('inf')
             max_medium = medium_avail / medium_pct if medium_pct > 0 else float('inf')
             max_long = long_avail / long_pct if long_pct > 0 else float('inf')
-            
+
             # Lock the strict total to the bottleneck or the target quota
             strict_total = int(min(quota, max_short, max_medium, max_long))
-            
+
             # Record bottleneck metrics if the strict total fails to meet the target quota
             if strict_total < quota:
                 ratio_short = short_avail / short_ideal if short_ideal > 0 else float('inf')
                 ratio_medium = medium_avail / medium_ideal if medium_ideal > 0 else float('inf')
                 ratio_long = long_avail / long_ideal if long_ideal > 0 else float('inf')
-                
+
                 min_ratio = min(ratio_short, ratio_medium, ratio_long)
-                
+
                 causes = []
                 deficits = {}
-                
+
                 if ratio_short == min_ratio:
                     causes.append("short")
                     missing = short_ideal - short_avail
@@ -194,38 +198,38 @@ def generate_samples():
                     "required_to_clear_bottleneck": deficits
                 }
                 sample_stats["bottleneck_analysis"]["status"] = "Bottlenecks restricted output."
-            
+
             short_target = int(strict_total * short_pct)
             medium_target = int(strict_total * medium_pct)
             long_target = strict_total - short_target - medium_target
-            
+
             lang_sampled.extend(buckets["short"][:short_target])
             lang_sampled.extend(buckets["medium"][:medium_target])
             lang_sampled.extend(buckets["long"][:long_target])
-            
+
         else:
             # Legacy cascading logic: Backfills deficits to hit the raw total
             short_target = short_ideal
             medium_target = medium_ideal
             long_target = long_ideal
-            
+
             taken_short = min(short_target, short_avail)
             lang_sampled.extend(buckets["short"][:taken_short])
-            
+
             medium_target += (short_target - taken_short)
             taken_medium = min(medium_target, medium_avail)
             lang_sampled.extend(buckets["medium"][:taken_medium])
-            
+
             long_target += (medium_target - taken_medium)
             taken_long = min(long_target, long_avail)
             lang_sampled.extend(buckets["long"][:taken_long])
-            
+
             long_deficit = long_target - taken_long
             if long_deficit > 0:
                 pool = buckets["short"][taken_short:] + buckets["medium"][taken_medium:]
                 random.shuffle(pool)
                 lang_sampled.extend(pool[:long_deficit])
-                
+
             # Log total volume bottleneck for legacy mode if overall target wasn't met
             total_extracted = len(lang_sampled)
             if total_extracted < quota:
@@ -239,7 +243,7 @@ def generate_samples():
                     }
                 }
                 sample_stats["bottleneck_analysis"]["status"] = "Bottlenecks restricted output."
-            
+
         sampled_offsets.extend(lang_sampled)
         sample_stats["language_distribution"][lang] = len(lang_sampled)
 
@@ -271,9 +275,9 @@ def generate_samples():
             # Drop the internal 'language' tag before saving so Hugging Face can read it normally
             clean_item = {"messages": item["messages"]}
             f.write(json.dumps(clean_item, ensure_ascii=False) + "\n")
-            
+
             sample_stats["total_samples"] += 1
-            
+
             # Update user stats for sample_summary.json
             try:
                 # Determine bucket for final summary first to ensure it is always counted
@@ -283,17 +287,19 @@ def generate_samples():
                         content_clean = re.sub(r'^\[.*?\]:\s*', '', msg["content"])
                         word_count = len(content_clean.split())
                         break
-                        
+
                 bucket = "long"
-                if word_count <= short_max: bucket = "short"
-                elif word_count <= medium_max: bucket = "medium"
+                if word_count <= short_max:
+                    bucket = "short"
+                elif word_count <= medium_max:
+                    bucket = "medium"
 
                 # Update global sums
                 sample_stats["actual_length_totals"][bucket] += 1
 
                 user_msg = item["messages"][1]["content"]
                 username_match = re.match(r'^\[(.*?)\]:', user_msg)
-                
+
                 if username_match:
                     username = username_match.group(1)
 
@@ -301,7 +307,7 @@ def generate_samples():
                         sample_stats["actual_user_distribution"][username] = {
                             "total": 0, "short": 0, "medium": 0, "long": 0
                         }
-                        
+
                     sample_stats["actual_user_distribution"][username]["total"] += 1
                     sample_stats["actual_user_distribution"][username][bucket] += 1
             except Exception:
@@ -317,7 +323,7 @@ def generate_samples():
     sample_summary_file = os.path.join(output_dir, "sample_summary.json")
     with open(sample_summary_file, 'w', encoding='utf-8') as f:
         json.dump(sample_stats, f, indent=4)
-        
+
     print(f"Sample summary written to {sample_summary_file}.")
 
     # Zipping Logic
@@ -333,6 +339,7 @@ def generate_samples():
             print(f"Encrypted zip created at: {zip_path}")
         except Exception as e:
             print(f"Failed to create encrypted zip: {e}")
+
 
 if __name__ == "__main__":
     generate_samples()
