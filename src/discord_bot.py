@@ -91,6 +91,7 @@ class BotCommands(commands.Cog):
     async def toggle_bot(self, ctx):
         new_state = not self.bot.bot_config["enabled"]
         await self.bot._update_config("enabled", new_state)
+        await self.bot.update_bot_presence()
         state_str = "ON" if new_state else "OFF"
         await ctx.send(f"Bot answering is now **{state_str}**.")
 
@@ -134,6 +135,7 @@ class BotCommands(commands.Cog):
     @is_admin()
     async def reset_config(self, ctx):
         await self.bot._reset_to_defaults()
+        await self.bot.update_bot_presence()
         await ctx.send("Bot configuration has been restored to default values.")
 
     @commands.command(name="rs", aliases=["restart"], help="[Admin] Restarts bot script. (;rs)")
@@ -300,6 +302,11 @@ class DiscordLLMBot(commands.Bot):
 
     # --- UTILITIES ---
 
+    async def update_bot_presence(self):
+        """Updates the bot's Discord presence based on its active status."""
+        status = discord.Status.online if self.bot_config.get("enabled", False) else discord.Status.idle
+        await self.change_presence(status=status)
+
     async def send_chunked_reply(self, message, text):
         """Splits long responses into Discord-friendly chunks of 2000 characters with rate-limit protection."""
         if not text:
@@ -324,6 +331,7 @@ class DiscordLLMBot(commands.Bot):
 
     async def on_ready(self):
         print(f'Successfully logged in as {self.user}')
+        await self.update_bot_presence()
         
         # Announce restart if recovering from a restart command
         restart_channel_id = self.bot_config.get("restart_channel_id")
