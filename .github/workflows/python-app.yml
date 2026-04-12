@@ -97,11 +97,33 @@ jobs:
 
     - name: Build Executable (Windows)
       if: matrix.os == 'windows-latest'
-      run: pyinstaller --onefile --name SoulClone-Windows --add-data "config.yaml;." --collect-all lingua --collect-all pandas main.py
+      run: pyinstaller --onefile --name SoulClone-Windows --collect-all lingua --collect-all pandas main.py
 
     - name: Build Executable (Linux)
       if: matrix.os == 'ubuntu-latest'
-      run: pyinstaller --onefile --name SoulClone-Linux --add-data "config.yaml:." --collect-all lingua --collect-all pandas main.py
+      run: pyinstaller --onefile --name SoulClone-Linux --collect-all lingua --collect-all pandas main.py
+
+    - name: Prepare Release Package (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        mkdir release_pkg
+        copy dist\SoulClone-Windows.exe release_pkg\
+        copy config.yaml release_pkg\
+        copy .env.example release_pkg\
+        copy LICENSE release_pkg\
+        copy README.md release_pkg\
+        xcopy docs release_pkg\docs /E /I
+        xcopy notebooks release_pkg\notebooks /E /I
+        Compress-Archive -Path release_pkg\* -DestinationPath SoulClone-Windows-v${{ needs.check-version.outputs.version }}.zip
+
+    - name: Prepare Release Package (Linux)
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        mkdir release_pkg
+        cp dist/SoulClone-Linux release_pkg/
+        cp config.yaml .env.example LICENSE README.md release_pkg/
+        cp -r docs notebooks release_pkg/
+        zip -r SoulClone-Linux-v${{ needs.check-version.outputs.version }}.zip release_pkg/*
 
     - name: Extract Changelog Section
       id: extract_changelog
@@ -121,5 +143,5 @@ jobs:
         body_path: release_notes.md
         generate_release_notes: true
         files: |
-          dist/SoulClone-Windows.exe
-          dist/SoulClone-Linux
+          SoulClone-Windows-v${{ needs.check-version.outputs.version }}.zip
+          SoulClone-Linux-v${{ needs.check-version.outputs.version }}.zip

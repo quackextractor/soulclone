@@ -4,10 +4,16 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.4.0] - 2026-04-12
+### Added
+- **Restructured ZIP Releases**: Distribution now uses versioned ZIP packages containing the root binary, configuration, documentation, and notebooks.
+- **Unbundled Config**: `config.yaml` and `.env.example` are now exposed external files instead of being baked into the binary.
+- **Project Structure Preservation**: Releases now include the `docs/` and `notebooks/` directories by default.
+
 ## [2.3.0] - 2026-04-12
 ### Added
 - **Automated Multi-Platform Builds**: Standalone executables for Windows and Linux are now generated automatically upon release.
-- **PyInstaller Integration**: Bundled core assets like `config.yaml` and dependencies (`lingua`, `pandas`) into a single-file portable binary.
+- **PyInstaller Integration**: Bundled dependencies (`lingua`, `pandas`) into a single-file portable binary.
 - Added `pyinstaller` to developer dependencies.
 
 ## [2.2.0] - 2026-04-12
@@ -16,8 +22,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com), and this 
 - Automated **versioning system** linking `CHANGELOG.md` to `README.md` badges.
 - **GitHub Actions** workflow for automated releases based on changelog updates.
 - Centralized `.flake8` configuration for consistent code style.
-
-## [2.1.0] - 2026-04-11
 
 ### Added
 * Added the `force_balanced` flag to `config.yaml` and integrated a strict bottleneck calculation within `sampler.py` to enforce the requested response distribution ratios, preventing minority buckets from breaking the output dataset balance.
