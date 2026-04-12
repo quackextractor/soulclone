@@ -278,7 +278,13 @@ class DiscordLLMBot(commands.Bot):
             await conn.execute('''CREATE TABLE IF NOT EXISTS config
                             (key TEXT PRIMARY KEY, value TEXT)''')
             await conn.execute('''CREATE TABLE IF NOT EXISTS history
-                            (channel_id INTEGER, role TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+                            (channel_id INTEGER, role TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP, message_id INTEGER)''')
+
+            try:
+                await conn.execute('ALTER TABLE history ADD COLUMN message_id INTEGER')
+            except aiosqlite.OperationalError:
+                pass
+
             await conn.execute('''CREATE TABLE IF NOT EXISTS dm_whitelist
                             (user_id INTEGER PRIMARY KEY)''')
             await conn.commit()
@@ -360,10 +366,10 @@ class DiscordLLMBot(commands.Bot):
                               ) ORDER BY timestamp ASC""", (channel_id, max_h)) as cursor:
                 return [{"role": row[0], "content": row[1]} for row in await cursor.fetchall()]
 
-    async def _add_to_history(self, channel_id, role, content):
+    async def _add_to_history(self, channel_id, role, content, message_id=None):
         async with aiosqlite.connect(self.db_path) as conn:
-            await conn.execute("INSERT INTO history (channel_id, role, content) VALUES (?, ?, ?)",
-                               (channel_id, role, content))
+            await conn.execute("INSERT INTO history (channel_id, role, content, message_id) VALUES (?, ?, ?, ?)",
+                               (channel_id, role, content, message_id))
             await conn.commit()
 
     async def _pop_last_history(self, channel_id):
@@ -607,18 +613,37 @@ class DiscordLLMBot(commands.Bot):
     async def _resolve_persistent_queue(self):
         async with aiosqlite.connect(self.db_path) as conn:
             async with conn.execute('''
-                SELECT channel_id, timestamp
+                SELECT channel_id, timestamp, message_id
                 FROM history h1
                 WHERE timestamp = (SELECT MAX(timestamp) FROM history h2 WHERE h1.channel_id = h2.channel_id)
                 AND role = 'user'
             ''') as cursor:
                 rows = await cursor.fetchall()
 
-        for channel_id, timestamp_str in rows:
+        for channel_id, timestamp_str, message_id in rows:
             try:
                 msg_time = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M:%S").replace(tzinfo=timezone.utc).timestamp()
                 if time.time() - msg_time < self.bot_config.get("queue_expiration", 60):
-                    asyncio.create_task(self.process_llm_queue(channel_id, msg_time, original_message=None))
+                    original_message = None
+                    if message_id:
+                        channel = self.get_channel(channel_id) or await self.fetch_channel(channel_id)
+                        if channel:
+                            try:
+                                original_message = await channel.fetch_message(message_id)
+                            except discord.HTTPException:
+                                pass
+
+                            if original_message:
+                                try:
+                                    await original_message.remove_reaction('💾', self.user)
+                                except discord.HTTPException:
+                                    pass
+                                try:
+                                    await original_message.add_reaction('⏳')
+                                except discord.HTTPException:
+                                    pass
+
+                    asyncio.create_task(self.process_llm_queue(channel_id, msg_time, original_message=original_message))
             except Exception as e:
                 print(f"Failed to process persistent queue for channel {channel_id}: {e}")
 
@@ -748,29 +773,23 @@ class DiscordLLMBot(commands.Bot):
 
         formatted_input = f"[{message.author.name}]: {clean_input}"
 
-        if self.shutting_down:
+        if should_reply or should_track:
+            await self._add_to_history(message.channel.id, "user", formatted_input, message.id)
+
             if should_reply:
-                await self._add_to_history(message.channel.id, "user", formatted_input)
-                try:
-                    await message.reply("[Queued for processing after update]")
-                except discord.HTTPException:
-                    pass
-            elif should_track:
-                await self._add_to_history(message.channel.id, "user", formatted_input)
-            return
+                if self.shutting_down:
+                    try:
+                        await message.add_reaction('💾')
+                    except discord.HTTPException:
+                        pass
+                else:
+                    try:
+                        await message.add_reaction('⏳')
+                    except discord.HTTPException:
+                        pass
 
-        if should_reply:
-            try:
-                await message.add_reaction('⏳')
-            except discord.HTTPException:
-                pass
-
-            await self._add_to_history(message.channel.id, "user", formatted_input)
-            received_at = time.time()
-            asyncio.create_task(self.process_llm_queue(message.channel.id, received_at, original_message=message))
-
-        elif should_track:
-            await self._add_to_history(message.channel.id, "user", formatted_input)
+                    received_at = time.time()
+                    asyncio.create_task(self.process_llm_queue(message.channel.id, received_at, original_message=message))
 
 
 def run_bot():

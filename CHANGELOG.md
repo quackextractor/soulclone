@@ -4,6 +4,13 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.8.1] - 2026-04-12
+### Changed
+* Refactored queue state visualization: Replaced textual update replies with reaction markers. The bot will now react with a disk icon to mark messages captured in the persistent queue during a shutdown or update event.
+* Added native `message_id` tracking to the SQLite `history` schema with a backwards-compatible `ALTER TABLE` migration fallback during bot initialization.
+* Streamlined the `on_message` listening loop to remove duplicated code paths related to tracking and reacting to incoming requests.
+* Integrated dynamic reaction replacement into the `_resolve_persistent_queue` boot sequence. The system will now actively fetch previously queued messages, purge the pending disk marker, and attach the active processing icon before routing the request to the LLM queue.
+
 ## [2.8.0] - 2026-04-12
 ### Added
 - **Full ZIP Extraction for Autoupdater**: Modified the frozen autoupdate logic to correctly identify, download, and extract the versioned `.zip` packages produced by the CI/CD pipeline. The bot now copies supplementary directories (like `docs` and `notebooks`) and external config files to the working directory alongside swapping the main executable.
