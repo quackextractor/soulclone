@@ -174,7 +174,7 @@ class DiscordLLMBot(commands.Bot):
         super().__init__(command_prefix=";", intents=intents)
 
         self.client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key)
-        self.channel_locks = {} # Per-channel lock storage
+        self.global_llm_lock = asyncio.Lock()
         self.db_path = "bot_data.db"
         
         self.bot_config = {}
@@ -189,11 +189,6 @@ class DiscordLLMBot(commands.Bot):
         await self._init_db()
         await self._load_config()
         await self.add_cog(BotCommands(self))
-
-    def _get_channel_lock(self, channel_id):
-        if channel_id not in self.channel_locks:
-            self.channel_locks[channel_id] = asyncio.Lock()
-        return self.channel_locks[channel_id]
 
     # Database Operations
 
@@ -368,14 +363,17 @@ class DiscordLLMBot(commands.Bot):
         formatted_input = f"[{message.author.name}]: {clean_input}"
 
         if should_reply:
-            # Acquire the lock specifically for this channel
-            lock = self._get_channel_lock(message.channel.id)
-            
-            async with lock:
-                # Add the user message to history INSIDE the lock to prevent context contamination
+            # 1. Immediate visual feedback
+            try:
+                await message.add_reaction('⏳')
+            except discord.HTTPException:
+                pass 
+
+            # 2. Global lock to protect hardware
+            async with self.global_llm_lock:
                 await self._add_to_history(message.channel.id, "user", formatted_input)
                 
-                async def keep_typing():
+                async def keep_typing_loop():
                     try:
                         while True:
                             async with message.channel.typing():
@@ -383,7 +381,7 @@ class DiscordLLMBot(commands.Bot):
                     except asyncio.CancelledError:
                         pass
                 
-                typing_task = asyncio.create_task(keep_typing())
+                typing_task = asyncio.create_task(keep_typing_loop())
                 
                 try:
                     history = await self._get_history(message.channel.id)
@@ -416,10 +414,15 @@ class DiscordLLMBot(commands.Bot):
                 except Exception as e:
                     self.bot_stats["errors"] += 1
                     await self._pop_last_history(message.channel.id)
-                    await message.reply(f"Error communicating with local server: {e}")
+                    await message.reply(f"Error: {e}")
                 
                 finally:
                     typing_task.cancel()
+                    # 3. Clean up reaction
+                    try:
+                        await message.remove_reaction('⏳', self.user)
+                    except discord.HTTPException:
+                        pass
         
         elif should_track:
             # Passive tracking happens outside locks to keep the DB updated without blocking
