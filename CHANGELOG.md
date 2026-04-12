@@ -4,6 +4,10 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.5.0] - 2026-04-12
+### Fixed
+- **Executable Restart Bug**: Resolved an issue where the `;restart` command failed in standalone builds by correctly detecting the "frozen" state and adjusting process arguments.
+
 ## [2.4.0] - 2026-04-12
 ### Added
 - **Restructured ZIP Releases**: Distribution now uses versioned ZIP packages containing the root binary, configuration, documentation, and notebooks.

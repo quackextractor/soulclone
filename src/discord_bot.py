@@ -146,7 +146,13 @@ class BotCommands(commands.Cog):
         await ctx.send("Restarting bot script...")
         await self.bot._update_config("restart_channel_id", ctx.channel.id)
         await self.bot.close()
-        os.execv(sys.executable, ['python'] + sys.argv)
+
+        if getattr(sys, 'frozen', False):
+            # Running as a bundled executable
+            os.execv(sys.executable, sys.argv)
+        else:
+            # Running as a raw python script
+            os.execv(sys.executable, ['python'] + sys.argv)
 
     @commands.command(name="sd", aliases=["shutdown", "kill"], help="[Admin] Shuts down bot. (;sd)")
     @is_admin()
