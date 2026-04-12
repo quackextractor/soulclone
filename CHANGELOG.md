@@ -4,6 +4,13 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.6.0] - 2026-04-12
+### Added
+- **DM Access Whitelist**: Introduced a persistent database-backed whitelist for controlling DM access, replacing the previous hardcoded name-based system with robust Discord User ID (integer) validation.
+- **Bot Status Indicator**: Presence now dynamically reflects the bot's state (Disabled, Enabled, or Restricted to a channel) with a dirty-flag mechanism to prevent Discord API rate limiting.
+- **Queue Expiration Time**: Added a configurable `queue_expiration` parameter to discard stale message requests in high-latency or high-load scenarios, preventing compute waste on outdated context.
+- Added `;whitelist` command group and `;set_expiration` command for administrative control.
+
 ## [2.5.0] - 2026-04-12
 ### Fixed
 - **Executable Restart Bug**: Resolved an issue where the `;restart` command failed in standalone builds by correctly detecting the "frozen" state and adjusting process arguments.

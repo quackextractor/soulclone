@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 
 def is_admin():
     async def predicate(ctx):
-        if ctx.author.name == ctx.bot.admin_user:
+        if ctx.author.id == ctx.bot.admin_user_id:
             return True
         await ctx.send("You do not have permission to use this command.")
         return False
@@ -62,6 +62,7 @@ class BotCommands(commands.Cog):
         embed.add_field(name="Track Non-Mentions", value=str(self.bot.bot_config["track_non_mentions"]), inline=True)
         embed.add_field(name="Bot Enabled", value=str(self.bot.bot_config["enabled"]), inline=True)
         embed.add_field(name="Any Message Mode", value=str(self.bot.bot_config["reply_any_message"]), inline=True)
+        embed.add_field(name="Queue Expiration", value=f"{self.bot.bot_config['queue_expiration']}s", inline=True)
 
         channel_name = "None (Any)"
         allowed_id = self.bot.bot_config["allowed_channel_id"]
@@ -133,6 +134,44 @@ class BotCommands(commands.Cog):
         await self.bot._update_config("max_history", length)
         await ctx.send(f"Max history set to {length} messages.")
 
+    @commands.group(name="whitelist", help="[Admin] Manage DM whitelist. (;whitelist <add|remove|list>)")
+    @is_admin()
+    async def whitelist(self, ctx):
+        if ctx.invoked_subcommand is None:
+            await ctx.send("Usage: `;whitelist <add|remove|list> [user_id]`")
+
+    @whitelist.command(name="add")
+    @is_admin()
+    async def whitelist_add(self, ctx, user_id: int):
+        await self.bot._add_whitelist(user_id)
+        await ctx.send(f"User ID `{user_id}` has been added to the DM whitelist.")
+
+    @whitelist.command(name="remove")
+    @is_admin()
+    async def whitelist_remove(self, ctx, user_id: int):
+        await self.bot._remove_whitelist(user_id)
+        await ctx.send(f"User ID `{user_id}` has been removed from the DM whitelist.")
+
+    @whitelist.command(name="list")
+    @is_admin()
+    async def whitelist_list(self, ctx):
+        wl = await self.bot._get_whitelist()
+        if not wl:
+            await ctx.send("The DM whitelist is currently empty.")
+            return
+
+        wl_str = "\n".join([f"- `{uid}`" for uid in wl])
+        await ctx.send(f"**DM Whitelisted Users:**\n{wl_str}")
+
+    @commands.command(name="se", aliases=["set_expiration", "expire"], help="[Admin] Set queue expiration time in seconds. (;se <num>)")
+    @is_admin()
+    async def set_expiration(self, ctx, seconds: int):
+        if seconds < 0:
+            await ctx.send("Expiration must be at least 0 seconds.")
+            return
+        await self.bot._update_config("queue_expiration", seconds)
+        await ctx.send(f"Queue expiration set to {seconds} seconds.")
+
     @commands.command(name="rc", aliases=["reset_config"], help="[Admin] Reset configuration to default values. (;rc)")
     @is_admin()
     async def reset_config(self, ctx):
@@ -172,7 +211,8 @@ class DiscordLLMBot(commands.Bot):
         self.bot_token = os.getenv("DISCORD_BOT_TOKEN")
         self.base_url = os.getenv("LM_STUDIO_URL", "http://localhost:1234/v1")
         self.api_key = os.getenv("LM_STUDIO_API_KEY", "lm-studio")
-        self.admin_user = os.getenv("ADMIN_USER")
+        self.admin_user_id = int(os.getenv("ADMIN_USER_ID", 0))
+        self.current_status_hash = None
 
         if not self.bot_token or not self.target_user:
             print("Error: DISCORD_BOT_TOKEN and TARGET_USER must be set in your .env file.")
@@ -210,6 +250,8 @@ class DiscordLLMBot(commands.Bot):
                             (key TEXT PRIMARY KEY, value TEXT)''')
             await conn.execute('''CREATE TABLE IF NOT EXISTS history
                             (channel_id INTEGER, role TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
+            await conn.execute('''CREATE TABLE IF NOT EXISTS dm_whitelist
+                            (user_id INTEGER PRIMARY KEY)''')
             await conn.commit()
 
     async def _load_config(self):
@@ -220,7 +262,8 @@ class DiscordLLMBot(commands.Bot):
             "reply_any_message": "False",
             "allowed_channel_id": "None",
             "system_prompt": self.system_prompt_default,
-            "restart_channel_id": "None"
+            "restart_channel_id": "None",
+            "queue_expiration": "60"
         }
 
         async with aiosqlite.connect(self.db_path) as conn:
@@ -238,6 +281,8 @@ class DiscordLLMBot(commands.Bot):
                     self.bot_config[key] = int(val_str)
                 elif key in ("allowed_channel_id", "restart_channel_id"):
                     self.bot_config[key] = int(val_str) if val_str != "None" else None
+                elif key == "queue_expiration":
+                    self.bot_config[key] = int(val_str)
                 else:
                     self.bot_config[key] = val_str
             await conn.commit()
@@ -257,7 +302,8 @@ class DiscordLLMBot(commands.Bot):
             "reply_any_message": "False",
             "allowed_channel_id": "None",
             "system_prompt": self.system_prompt_default,
-            "restart_channel_id": "None"
+            "restart_channel_id": "None",
+            "queue_expiration": "60"
         }
         async with aiosqlite.connect(self.db_path) as conn:
             for key, default in defaults.items():
@@ -299,11 +345,51 @@ class DiscordLLMBot(commands.Bot):
             await conn.execute("DELETE FROM history WHERE channel_id = ?", (channel_id,))
             await conn.commit()
 
+    async def _is_whitelisted(self, user_id):
+        async with aiosqlite.connect(self.db_path) as conn:
+            async with conn.execute("SELECT 1 FROM dm_whitelist WHERE user_id = ?", (user_id,)) as cursor:
+                return await cursor.fetchone() is not None
+
+    async def _add_whitelist(self, user_id):
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute("INSERT OR IGNORE INTO dm_whitelist (user_id) VALUES (?)", (user_id,))
+            await conn.commit()
+
+    async def _remove_whitelist(self, user_id):
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute("DELETE FROM dm_whitelist WHERE user_id = ?", (user_id,))
+            await conn.commit()
+
+    async def _get_whitelist(self):
+        async with aiosqlite.connect(self.db_path) as conn:
+            async with conn.execute("SELECT user_id FROM dm_whitelist") as cursor:
+                return [row[0] for row in await cursor.fetchall()]
+
     # Utilities
 
     async def update_bot_presence(self):
-        status = discord.Status.online if self.bot_config.get("enabled", False) else discord.Status.idle
-        await self.change_presence(status=status)
+        enabled = self.bot_config.get("enabled", False)
+        allowed_id = self.bot_config.get("allowed_channel_id")
+
+        status_text = "Disabled"
+        if enabled:
+            if allowed_id:
+                try:
+                    channel = self.get_channel(allowed_id) or await self.fetch_channel(allowed_id)
+                    name = f"#{channel.name}" if hasattr(channel, 'name') else str(allowed_id)
+                    status_text = f"Restricted to {name}"
+                except Exception:
+                    status_text = f"Restricted to {allowed_id}"
+            else:
+                status_text = "Enabled in Server"
+
+        status_type = discord.Status.online if enabled else discord.Status.idle
+
+        # Hash check to avoid rate limits
+        new_hash = hash((status_text, status_type))
+        if new_hash != self.current_status_hash:
+            await self.change_presence(status=status_type, activity=discord.Game(name=status_text))
+            self.current_status_hash = new_hash
 
     async def send_chunked_reply(self, message, text):
         if not text:
@@ -353,8 +439,11 @@ class DiscordLLMBot(commands.Bot):
             return
 
         is_dm = isinstance(message.channel, discord.DMChannel)
-        if is_dm and message.author.name != self.admin_user:
-            return
+        if is_dm:
+            is_admin_dm = message.author.id == self.admin_user_id
+            is_whitelisted = await self._is_whitelisted(message.author.id)
+            if not is_admin_dm and not is_whitelisted:
+                return
 
         allowed_id = self.bot_config["allowed_channel_id"]
         if not is_dm and allowed_id is not None and message.channel.id != allowed_id:
@@ -382,7 +471,17 @@ class DiscordLLMBot(commands.Bot):
                 pass
 
             # 2. Global lock to protect hardware
+            received_at = time.time()
             async with self.global_llm_lock:
+                # Check for queue expiration
+                expiration = self.bot_config.get("queue_expiration", 60)
+                if time.time() - received_at > expiration:
+                    try:
+                        await message.remove_reaction('⏳', self.user)
+                    except discord.HTTPException:
+                        pass
+                    return
+
                 await self._add_to_history(message.channel.id, "user", formatted_input)
 
                 async def keep_typing_loop():

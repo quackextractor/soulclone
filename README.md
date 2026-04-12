@@ -1,7 +1,7 @@
 # Discord Persona Fine-Tuning Pipeline
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.5.0-blue.svg)](https://github.com/quackextractor/soulclone)
+[![Version](https://img.shields.io/badge/version-2.6.0-blue.svg)](https://github.com/quackextractor/soulclone)
 
 ## Overview
 This project provides an end-to-end data preprocessing and training pipeline designed to fine-tune a Large Language Model (LLM) to clone the conversational style, timing, and behavioral patterns of any specific target Discord user.
@@ -24,6 +24,20 @@ By using exported CSV chat logs from direct messages, group chats, and server ch
 5. **Execution:** Run `python main.py` to process your data, extract the persona, and generate the encrypted training payload.
 6. **Training:** Upload the payload to Google Drive and run `clone-training.ipynb` in Google Colab.
 7. **Inference:** Test your model natively in Colab using `chat-inference.ipynb`.
+8. **Bot Management:** Once deployed to Discord, use `;c` to view config and `;whitelist add <id>` to grant DM access.
+
+## Key Features (v2.6.0)
+* **DM Whitelist System**: Securely control who can interact with the bot in DMs using persistent Discord User ID validation.
+* **Rich Presence Status**: The bot's Discord activity reflects its current state (Enabled/Disabled/Restricted) with rate-limit protection.
+* **Queue Management**: `queue_expiration` prevents the LLM from processing outdated requests if the queue is overloaded.
+
+## Configuration & Commands
+The bot uses `;` as a prefix for administrative commands:
+* `;whitelist <add|remove|list> <user_id>`: Manage DM access.
+* `;se <seconds>`: Set queue expiration time.
+* `;tb`: Toggle bot responses globally.
+* `;sc`: Restrict bot to the current channel (or `clear` to unrestrict).
+* `;c`: Display full configuration and status.
 
 ***
 
