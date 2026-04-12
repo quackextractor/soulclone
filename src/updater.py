@@ -6,6 +6,7 @@ import shutil
 import stat
 import zipfile
 import asyncio
+import subprocess
 
 
 def toggle_autoupdate_env(new_state: bool):
@@ -28,6 +29,18 @@ def toggle_autoupdate_env(new_state: bool):
                 f.write(line)
         if not found:
             f.write(f"AUTOUPDATE={str(new_state)}\n")
+
+
+def cleanup_old_executables():
+    """Silently cleans up leftover .old files from previous updates upon successful boot."""
+    if getattr(sys, 'frozen', False):
+        exe_path = sys.executable
+        old_path = f"{exe_path}.old"
+        if os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except Exception:
+                pass
 
 
 async def check_for_updates(github_repo, current_version):
@@ -121,7 +134,10 @@ async def run_update(github_repo, log_callback=None):
                                         new_exe_path = f"{exe_path}.new"
                                         shutil.copy2(src_file, new_exe_path)
                                         if os.path.exists(f"{exe_path}.old"):
-                                            os.remove(f"{exe_path}.old")
+                                            try:
+                                                os.remove(f"{exe_path}.old")
+                                            except OSError:
+                                                pass
                                         shutil.move(exe_path, f"{exe_path}.old")
                                         shutil.move(new_exe_path, exe_path)
                                         if system != "windows":
@@ -158,7 +174,11 @@ def restart_process():
     env.pop('_MEIPASS2', None)
     env.pop('_MEIPASS', None)
 
+    # Detach and spawn completely independent process
     if getattr(sys, 'frozen', False):
-        os.execve(sys.executable, sys.argv, env)
+        subprocess.Popen(sys.argv, env=env)
     else:
-        os.execve(sys.executable, [sys.executable] + sys.argv, env)
+        subprocess.Popen([sys.executable] + sys.argv, env=env)
+
+    # Hard exit current process to trigger bootloader cleanup of old _MEIPASS
+    os._exit(0)

@@ -4,6 +4,16 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.1] - 2026-04-12
+### Added
+* **Persistent Logging**: Integrated a comprehensive logging system that captures all system events and errors to `out/main.log`.
+* **Auto-Initialization**: The `out/` directory is now automatically created on startup if it does not exist.
+* **Log Rotation**: Implemented an automated log-clearing mechanism that wipes the previous `main.log` file upon every manual start or system restart to ensure developers are only reviewing current session data.
+* **Timestamped Events**: Enhanced all log entries with standard ISO timestamps (`YYYY-MM-DD HH:MM:SS`) to provide a precise chronological audit trail for debugging.
+
+### Changed
+* **Global Logger Refactor**: Migrated from a console-only logging setup to a dual-target system using both `StreamHandler` and `FileHandler` for improved operational oversight.
+
 ## [2.9.0] - 2026-04-12
 ### Added
 * **CLI Update Controls**: Introduced `python main.py update` to manually trigger background update checks and `python main.py autoupdate <on|off>` to toggle the environment state from the root terminal.

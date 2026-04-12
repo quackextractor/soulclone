@@ -10,17 +10,37 @@ from src.sampler import generate_samples
 from src.discord_bot import run_bot
 from src.updater import toggle_autoupdate_env, run_update, restart_process
 
+try:
+    from src.updater import cleanup_old_executables
+except ImportError:
+    cleanup_old_executables = None
+
 
 def setup_logging():
-    """Sets up global console logging."""
+    """Sets up global console and file logging."""
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
+
+    # Formatter including timestamps for easier debugging
+    formatter = logging.Formatter("%(asctime)s - %(levelname)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+
+    # Console Handler
     c_handler = logging.StreamHandler()
-    c_handler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
+    c_handler.setFormatter(formatter)
     logger.addHandler(c_handler)
+
+    # File Handler
+    os.makedirs("out", exist_ok=True)
+    f_handler = logging.FileHandler(os.path.join("out", "main.log"), mode='w', encoding='utf-8')
+    f_handler.setFormatter(formatter)
+    logger.addHandler(f_handler)
 
 
 def main():
+    # Clean up any leftover update artifacts from the previous run
+    if cleanup_old_executables:
+        cleanup_old_executables()
+
     setup_logging()
 
     parser = argparse.ArgumentParser(
