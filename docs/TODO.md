@@ -1,8 +1,8 @@
 # Discord Soul Clone - Project TODO
 
 ### Core Architecture & Deployment
-* [ ] **How will this run on a laptop?** (Note: The pipeline natively exports a CPU-optimized GGUF (Q4_K_M) model designed specifically for local inference tools like LM Studio or Ollama. The current `discord_bot.py` is configured to connect to `http://localhost:1234/v1`, allowing it to run smoothly on a local machine alongside LM Studio.)
-* [ ] **How does the bot handle DMs/multiple servers? Do separate channels have separate histories?** (Note: Yes, the bot's SQLite `history` table tracks conversational memory strictly by `channel_id`. When it pulls past context, it filters specifically for the current channel, so every DM and server channel maintains a isolated history.)
+* [ ] **How will this run on a laptop?** Test on a low-end device.
+* [x] **How does the bot handle DMs/multiple servers? Do separate channels have separate histories?** (Note: Yes, the bot's SQLite `history` table tracks conversational memory strictly by `channel_id`. When it pulls past context, it filters specifically for the current channel, so every DM and server channel maintains a isolated history.)
 * [ ] **Long-Term Memory (RAG):** Implement a vector database (e.g., ChromaDB or FAISS) to allow the bot to recall conversations from weeks ago. When a user asks about something from the past, the bot will fetch the relevant embedded context and inject it into the system prompt.
 
 ---
@@ -37,7 +37,7 @@
 ---
 
 ### Development, CI/CD, & Releases
-* [ ] **Add precommit hooks** with unit tests and linting + autofix linting to maintain code quality.
+* [x] **Add precommit hooks** with unit tests and linting + autofix linting to maintain code quality.
 * [ ] **Add autoupdate from GitHub:** Finish writing currently queued messages before the update is received. Any messages queued after the update should be scheduled for after the restart. The bot should announce it is "restarting for update" (using `git pull`) and then resume the persistent queue.
-* [ ] **Add releases:** Generate binary versions for Windows and Linux on changelog version bumps (following the workflow used in previous projects like `textfilemerger`).
+* [x] **Add releases:** Generate binary versions for Windows and Linux on changelog version bumps (following the workflow used in previous projects like `textfilemerger`).
 * [ ] **For non-dev versions, add configurable auto-download and install of new releases** instead of requiring a manual `git pull`.
