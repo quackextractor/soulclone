@@ -4,6 +4,12 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.3.0] - 2026-04-12
+### Added
+- **Automated Multi-Platform Builds**: Standalone executables for Windows and Linux are now generated automatically upon release.
+- **PyInstaller Integration**: Bundled core assets like `config.yaml` and dependencies (`lingua`, `pandas`) into a single-file portable binary.
+- Added `pyinstaller` to developer dependencies.
+
 ## [2.2.0] - 2026-04-12
 ### Added
 - Integrated **pre-commit** hooks for automated linting (flake8, autopep8).
