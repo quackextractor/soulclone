@@ -195,54 +195,54 @@ async def run_update(github_repo, log_callback=None):
 
 def restart_process():
     """
-    A completely detached approach to restarting PyInstaller apps.
-    Writes a temporary script that waits for the parent to die,
-    cleans up any .old files, and launches the app fresh.
+    A direct approach to restarting PyInstaller apps or Python scripts.
+    Since the updater renames the running executable to .old,
+    the new executable is already in place. We can spawn it directly.
     """
     system = platform.system().lower()
-    args = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "bot"
+
+    # Safely handle arguments as a list
+    args = sys.argv[1:] if len(sys.argv) > 1 else ["bot"]
 
     if getattr(sys, 'frozen', False):
         exe_path = sys.executable
+
+        # If for some reason we are running as .old, point to the real one
         if exe_path.endswith('.old'):
             exe_path = exe_path[:-4]
 
+        cmd = [exe_path] + args
         exe_dir = os.path.dirname(exe_path)
-        old_exe_path = f"{exe_path}.old"
 
         if system == "windows":
-            script_path = os.path.join(exe_dir, "restart_helper.bat")
-            with open(script_path, "w") as f:
-                f.write("@echo off\n")
-                f.write(f'cd /d "{exe_dir}"\n')  # CRITICAL: Ensure correct working directory
-                f.write("timeout /t 3 /nobreak > NUL\n")
-                f.write(f'if exist "{old_exe_path}" del /f /q "{old_exe_path}"\n')
-                f.write(f'start "" /D "{exe_dir}" "{exe_path}" {args}\n')  # CRITICAL: Start directory
-                f.write('del "%~f0"\n')
-
-            # FIXED: Pass as a single string to avoid quote-stripping issues in cmd.exe
             subprocess.Popen(
-                f'"{script_path}"',
+                cmd,
                 creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
                 cwd=exe_dir,
-                shell=True
+                close_fds=True
             )
         else:
-            script_path = os.path.join(exe_dir, "restart_helper.sh")
-            with open(script_path, "w") as f:
-                f.write("#!/bin/bash\n")
-                f.write(f'cd "{exe_dir}"\n')
-                f.write("sleep 3\n")
-                f.write(f'rm -f "{old_exe_path}"\n')
-                f.write(f'nohup "{exe_path}" {args} > /dev/null 2>&1 &\n')
-                f.write('rm -- "$0"\n')
-
-            os.chmod(script_path, 0o755)
-            subprocess.Popen([script_path], preexec_fn=os.setpgrp, cwd=exe_dir)
+            subprocess.Popen(
+                cmd,
+                start_new_session=True,  # Modern replacement for preexec_fn=os.setpgrp
+                cwd=exe_dir,
+                close_fds=True
+            )
     else:
+        # Standard Python script restart
+        cmd = [sys.executable] + sys.argv
         if system == "windows":
-            subprocess.Popen([sys.executable] + sys.argv, creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+            subprocess.Popen(
+                cmd,
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                close_fds=True
+            )
         else:
-            subprocess.Popen([sys.executable] + sys.argv, preexec_fn=os.setpgrp)
+            subprocess.Popen(
+                cmd,
+                start_new_session=True,
+                close_fds=True
+            )
 
+    # Immediately kill the current process so the new one can take over
     os._exit(0)

@@ -4,6 +4,14 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+
+Here is the streamlined `updater.py` and a condensed changelog.
+
+## [2.9.4] - 2026-04-12
+### Fixed
+- **Direct Restart:** Replaced wonky `.bat`/`.sh` scripts with a direct, detached process spawn. 
+- **Fixes:** Fixed path-quoting issues with spaces, prevented file-handle leaks (log locks), and ensured `.env` version updates before restarting to prevent update loops.
+
 ## [2.9.3] - 2026-04-12
 ### Fixed
 - **Infinite Update Loops**: The updater now correctly patches the `.env` file with the latest `CURRENT_VERSION` tag from GitHub immediately after extraction, preventing the bot from re-triggering the update process every time it restarts.
