@@ -4,15 +4,12 @@ import time
 import aiosqlite
 import discord
 import asyncio
-import platform
-import aiohttp
-import shutil
-import stat
-import zipfile
 from datetime import datetime, timezone
 from discord.ext import commands, tasks
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
+
+from src.updater import toggle_autoupdate_env, check_for_updates, run_update, restart_process
 
 
 def is_admin():
@@ -59,13 +56,13 @@ class BotCommands(commands.Cog):
     async def show_config(self, ctx):
         embed = discord.Embed(title="Bot Configuration", color=discord.Color.green())
         embed.add_field(name="Target User Persona", value=self.bot.target_user, inline=True)
-        embed.add_field(name="Admin User", value=self.bot.admin_user_id or "None Set", inline=True)
+        embed.add_field(name="Admin User", value=str(self.bot.admin_user_id) or "None Set", inline=True)
         embed.add_field(name="Max History (Memory)", value=str(self.bot.bot_config["max_history"]), inline=True)
         embed.add_field(name="Track Non-Mentions", value=str(self.bot.bot_config["track_non_mentions"]), inline=True)
         embed.add_field(name="Bot Enabled", value=str(self.bot.bot_config["enabled"]), inline=True)
         embed.add_field(name="Any Message Mode", value=str(self.bot.bot_config["reply_any_message"]), inline=True)
         embed.add_field(name="Queue Expiration", value=f"{self.bot.bot_config['queue_expiration']}s", inline=True)
-        embed.add_field(name="Autoupdate", value=str(self.bot.bot_config["autoupdate"]), inline=True)
+        embed.add_field(name="Autoupdate", value=str(self.bot.autoupdate), inline=True)
 
         channel_name = "None (Any)"
         allowed_id = self.bot.bot_config["allowed_channel_id"]
@@ -120,14 +117,15 @@ class BotCommands(commands.Cog):
     @commands.command(name="au", aliases=["autoupdate"], help="[Admin] Toggle automatic background updates. (;au)")
     @is_admin()
     async def toggle_autoupdate(self, ctx):
-        new_state = not self.bot.bot_config["autoupdate"]
-        await self.bot._update_config("autoupdate", new_state)
+        new_state = not self.bot.autoupdate
+        self.bot.autoupdate = new_state
+        toggle_autoupdate_env(new_state)
 
         if new_state and not self.bot.github_repo:
-            await ctx.send("⚠️ WARNING: `GITHUB_REPO` is not set in your `.env` file. Background autoupdates will not function.")
+            await ctx.send("[WARNING] GITHUB_REPO is not set in your .env file. Background autoupdates will not function.")
 
         state_str = "ON" if new_state else "OFF"
-        await ctx.send(f"Background autoupdate is now **{state_str}**.")
+        await ctx.send(f"Background autoupdate is now **{state_str}** in `.env`.")
 
     @commands.command(name="sc", aliases=["set_channel", "chan"], help="[Admin] Restrict to channel. 'clear' to undo. (;sc)")
     @is_admin()
@@ -222,15 +220,7 @@ class BotCommands(commands.Cog):
             await ctx.send("Restarting bot script...")
             await self.bot._update_config("restart_channel_id", ctx.channel.id)
             await self.bot.close()
-
-            env = os.environ.copy()
-            env.pop('_MEIPASS2', None)
-            env.pop('_MEIPASS', None)
-
-            if getattr(sys, 'frozen', False):
-                os.execve(sys.executable, sys.argv, env)
-            else:
-                os.execve(sys.executable, [sys.executable] + sys.argv, env)
+            restart_process()
 
     @commands.command(name="sd", aliases=["shutdown", "kill"], help="[Admin] Shuts down bot safely. (;sd)")
     @is_admin()
@@ -262,6 +252,7 @@ class DiscordLLMBot(commands.Bot):
         self.admin_user_id = int(os.getenv("ADMIN_USER_ID", 0))
         self.github_repo = os.getenv("GITHUB_REPO")
         self.current_version = os.getenv("CURRENT_VERSION", "v1.0.0")
+        self.autoupdate = os.getenv("AUTOUPDATE", "False").lower() == "true"
 
         self.current_status_hash = None
         self.shutting_down = False
@@ -320,8 +311,7 @@ class DiscordLLMBot(commands.Bot):
             "allowed_channel_id": "None",
             "system_prompt": self.system_prompt_default,
             "restart_channel_id": "None",
-            "queue_expiration": "60",
-            "autoupdate": "False"
+            "queue_expiration": "60"
         }
 
         async with aiosqlite.connect(self.db_path) as conn:
@@ -361,8 +351,7 @@ class DiscordLLMBot(commands.Bot):
             "allowed_channel_id": "None",
             "system_prompt": self.system_prompt_default,
             "restart_channel_id": "None",
-            "queue_expiration": "60",
-            "autoupdate": "False"
+            "queue_expiration": "60"
         }
         async with aiosqlite.connect(self.db_path) as conn:
             for key, default in defaults.items():
@@ -426,29 +415,10 @@ class DiscordLLMBot(commands.Bot):
 
     @tasks.loop(hours=6)
     async def autoupdate_check(self):
-        if not self.bot_config.get("autoupdate", False):
+        if not self.autoupdate:
             return
 
-        update_needed = False
-        if getattr(sys, 'frozen', False):
-            if self.github_repo:
-                async with aiohttp.ClientSession() as session:
-                    url = f"https://api.github.com/repos/{self.github_repo}/releases/latest"
-                    async with session.get(url) as resp:
-                        if resp.status == 200:
-                            data = await resp.json()
-                            latest_tag = data.get("tag_name", "")
-                            if latest_tag and latest_tag != self.current_version:
-                                update_needed = True
-        else:
-            process = await asyncio.create_subprocess_shell(
-                "git fetch && git status -sb",
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, _ = await process.communicate()
-            if b"behind" in stdout:
-                update_needed = True
+        update_needed = await check_for_updates(self.github_repo, self.current_version)
 
         if update_needed:
             restart_channel = self.bot_config.get("restart_channel_id")
@@ -463,126 +433,23 @@ class DiscordLLMBot(commands.Bot):
         if channel:
             await channel.send("Update initiated. Blocking new processing and waiting for current queue to finish...")
 
+        async def log_discord(msg):
+            if channel:
+                await channel.send(msg)
+
         async with self.global_llm_lock:
             if channel:
                 await channel.send("Queue cleared. Fetching updates...")
 
-            if getattr(sys, 'frozen', False):
-                if not self.github_repo:
-                    if channel:
-                        await channel.send("Error: GITHUB_REPO not set in .env. Cannot download latest release.")
-                    self.shutting_down = False
-                    return
-
-                system = platform.system().lower()
-                async with aiohttp.ClientSession() as session:
-                    url = f"https://api.github.com/repos/{self.github_repo}/releases/latest"
-                    async with session.get(url) as resp:
-                        if resp.status != 200:
-                            if channel:
-                                await channel.send("Failed to find latest release on GitHub.")
-                            self.shutting_down = False
-                            return
-
-                        data = await resp.json()
-                        assets = data.get("assets", [])
-                        asset_url = None
-                        asset_name = None
-
-                        for asset in assets:
-                            if system in asset["name"].lower() and asset["name"].lower().endswith(".zip"):
-                                asset_url = asset["browser_download_url"]
-                                asset_name = asset["name"]
-                                break
-
-                        if not asset_url:
-                            if channel:
-                                await channel.send("Could not find a matching zip release asset for this OS.")
-                            self.shutting_down = False
-                            return
-
-                        if channel:
-                            await channel.send(f"Downloading new release package: {asset_name}...")
-
-                        async with session.get(asset_url) as download_resp:
-                            if download_resp.status == 200:
-                                zip_path = "update_package.zip"
-                                with open(zip_path, 'wb') as f:
-                                    f.write(await download_resp.read())
-
-                                try:
-                                    extract_dir = "update_extracted"
-                                    with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                                        zip_ref.extractall(extract_dir)
-
-                                    source_dir = extract_dir
-                                    if len(os.listdir(extract_dir)) == 1 and os.path.isdir(os.path.join(extract_dir, os.listdir(extract_dir)[0])):
-                                        source_dir = os.path.join(extract_dir, os.listdir(extract_dir)[0])
-
-                                    exe_path = sys.executable
-                                    exe_name = os.path.basename(exe_path)
-
-                                    for root, dirs, files in os.walk(source_dir):
-                                        rel_path = os.path.relpath(root, source_dir)
-                                        target_dir = os.path.join(os.getcwd(), rel_path) if rel_path != "." else os.getcwd()
-
-                                        os.makedirs(target_dir, exist_ok=True)
-
-                                        for file in files:
-                                            src_file = os.path.join(root, file)
-                                            if file == exe_name or (file.startswith("SoulClone") and "exe" in file):
-                                                new_exe_path = f"{exe_path}.new"
-                                                shutil.copy2(src_file, new_exe_path)
-                                                if os.path.exists(f"{exe_path}.old"):
-                                                    os.remove(f"{exe_path}.old")
-                                                shutil.move(exe_path, f"{exe_path}.old")
-                                                shutil.move(new_exe_path, exe_path)
-                                                if system != "windows":
-                                                    st = os.stat(exe_path)
-                                                    os.chmod(exe_path, st.st_mode | stat.S_IEXEC)
-                                            else:
-                                                target_file = os.path.join(target_dir, file)
-                                                shutil.copy2(src_file, target_file)
-
-                                    shutil.rmtree(extract_dir)
-                                    os.remove(zip_path)
-
-                                except Exception as e:
-                                    if channel:
-                                        await channel.send(f"Error during extraction and file swap: {e}")
-                                    self.shutting_down = False
-                                    return
+            success = await run_update(self.github_repo, log_callback=log_discord)
+            if success:
+                if channel:
+                    await self._update_config("restart_channel_id", channel.id)
+                    await channel.send("Restarting bot to apply updates...")
+                await self.close()
+                restart_process()
             else:
-                process = await asyncio.create_subprocess_shell(
-                    "git pull",
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE
-                )
-                stdout, stderr = await process.communicate()
-                if process.returncode != 0:
-                    if channel:
-                        await channel.send(f"Git pull failed:\n```\n{stderr.decode()}\n```")
-                    self.shutting_down = False
-                    return
-                else:
-                    if channel:
-                        await channel.send(f"Git pull successful:\n```\n{stdout.decode()}\n```")
-
-            if channel:
-                await self._update_config("restart_channel_id", channel.id)
-                await channel.send("Restarting bot to apply updates...")
-
-            await self.close()
-
-            # Remove PyInstaller environment variables to prevent MEIPASS conflicts on restart
-            env = os.environ.copy()
-            env.pop('_MEIPASS2', None)
-            env.pop('_MEIPASS', None)
-
-            if getattr(sys, 'frozen', False):
-                os.execve(sys.executable, sys.argv, env)
-            else:
-                os.execve(sys.executable, [sys.executable] + sys.argv, env)
+                self.shutting_down = False
 
     async def update_bot_presence(self):
         enabled = self.bot_config.get("enabled", False)
@@ -788,7 +655,6 @@ class DiscordLLMBot(commands.Bot):
         if not is_dm and allowed_id is not None and message.channel.id != allowed_id:
             return
 
-        # Improved mention detection to catch raw tags and bypass API caching issues
         is_mentioned = self.user in message.mentions or f'<@{self.user.id}>' in message.content or f'<@!{self.user.id}>' in message.content
         should_reply = (is_mentioned or self.bot_config["reply_any_message"] or is_dm) and self.bot_config["enabled"]
         should_track = self.bot_config["track_non_mentions"]

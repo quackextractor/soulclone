@@ -1,10 +1,14 @@
 import argparse
 import sys
 import logging
+import os
+import asyncio
+from dotenv import load_dotenv
 
 from src.preprocess import process_discord_logs
 from src.sampler import generate_samples
 from src.discord_bot import run_bot
+from src.updater import toggle_autoupdate_env, run_update, restart_process
 
 
 def setup_logging():
@@ -25,7 +29,9 @@ def main():
             "Available Commands:\n"
             "  python main.py preprocess    # Run the local data pipeline\n"
             "  python main.py sample        # Extract a small jsonl sample\n"
-            "  python main.py bot           # Run the local Discord bot"
+            "  python main.py bot           # Run the local Discord bot\n"
+            "  python main.py update        # Manually trigger an update check and pull\n"
+            "  python main.py autoupdate    # Toggle background autoupdate in .env"
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
@@ -56,6 +62,19 @@ def main():
         help="Start the Discord bot connected to the local LM Studio model",
     )
 
+    # Command: update
+    subparsers.add_parser(
+        "update",
+        help="Manually trigger an update check and pull the latest release",
+    )
+
+    # Command: autoupdate
+    autoupdate_parser = subparsers.add_parser(
+        "autoupdate",
+        help="Toggle background autoupdate in .env",
+    )
+    autoupdate_parser.add_argument("state", choices=["on", "off"], help="Enable or disable autoupdate")
+
     # Check if no arguments were passed, print help and exit
     if len(sys.argv) == 1:
         parser.print_help(sys.stderr)
@@ -78,6 +97,26 @@ def main():
     elif args.command == "bot":
         logging.info("Starting the Discord bot...")
         run_bot()
+
+    elif args.command == "update":
+        logging.info("Triggering update process...")
+        load_dotenv()
+        github_repo = os.getenv("GITHUB_REPO")
+
+        async def log_cli(msg):
+            logging.info(msg.replace("```\n", "").replace("\n```", ""))
+
+        success = asyncio.run(run_update(github_repo, log_callback=log_cli))
+        if success:
+            logging.info("Update successful. Restarting...")
+            restart_process()
+        else:
+            logging.error("Update failed.")
+
+    elif args.command == "autoupdate":
+        new_state = (args.state == "on")
+        toggle_autoupdate_env(new_state)
+        logging.info(f"Autoupdate set to {'ON' if new_state else 'OFF'} in .env")
 
 
 if __name__ == "__main__":

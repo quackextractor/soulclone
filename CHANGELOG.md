@@ -4,6 +4,12 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.0] - 2026-04-12
+### Added
+* **CLI Update Controls**: Introduced `python main.py update` to manually trigger background update checks and `python main.py autoupdate <on|off>` to toggle the environment state from the root terminal.
+* **Persistent Autoupdate State**: The Discord `;au` command now actively modifies the `.env` file to ensure the autoupdate state persists across hard reboots and hardware crashes.
+* **Modular Updater**: Abstracted the GitHub release fetching, ZIP extraction, and executable swapping logic into a dedicated `src/updater.py` module to decouple it from the Discord API event loop.
+
 ## [2.8.2] - 2026-04-12
 ### Fixed
 - **Mention Detection Flaw**: Resolved an issue where the bot ignored direct `@` mentions by implementing a raw string fallback (`<@ID>`) to bypass Discord API caching limitations and missing `message.mentions` payloads.
