@@ -9,7 +9,7 @@
 
 ### Access Control & Model Management
 * [ ] **Lightning-fast keyword filter:** Add a high-performance safety layer to block or flag specific toxic or prohibited words before they are sent to Discord to ensure the uncensored model remains compliant with server rules.
-* [ ] **Add a separate configurable whitelist for people who can use bot in DMs.** (Note: Currently, the bot has a hardcoded check that only allows the designated `admin_user` in the `.env` to interact with it via DM.)
+* [x] **Add a separate configurable whitelist for people who can use bot in DMs.** (Note: Currently, the bot has a hardcoded check that only allows the designated `admin_user` in the `.env` to interact with it via DM.)
 * [ ] **Add model switching:** Implement commands to list available models, unload the existing model, and load a chosen model via the local API.
 
 ---
@@ -26,13 +26,13 @@
 ### State Management & Task Queue
 * [ ] **Contextual Summarization:** Instead of outright deleting the oldest messages when hitting the `max_history` limit, have the bot generate a one-sentence summary of the dropped context to keep the "thread" of the conversation alive indefinitely.
 * [ ] **Make the queue persist on restart / reboot** to ensure no pending responses are lost.
-* [ ] **Add configurable expiration time in seconds.** If a message in the queue expires, remove the hourglass reaction and add an "expired" emoji.
+* [x] **Add configurable expiration time in seconds.** If a message in the queue expires, remove the hourglass reaction and add an "expired" emoji.
 
 ---
 
 ### Discord Integration & UI
 * [ ] **Consider migration to regular Discord "/" commands** with ephemeral messages (messages only visible to the user) to reduce channel clutter.
-* [ ] **Have status show the bot status** (e.g., disabled, enabled in server, or enabled specifically in a #channel).
+* [x] **Have status show the bot status** (e.g., disabled, enabled in server, or enabled specifically in a #channel).
 
 ---
 
