@@ -122,6 +122,10 @@ class BotCommands(commands.Cog):
     async def toggle_autoupdate(self, ctx):
         new_state = not self.bot.bot_config["autoupdate"]
         await self.bot._update_config("autoupdate", new_state)
+
+        if new_state and not self.bot.github_repo:
+            await ctx.send("⚠️ WARNING: `GITHUB_REPO` is not set in your `.env` file. Background autoupdates will not function.")
+
         state_str = "ON" if new_state else "OFF"
         await ctx.send(f"Background autoupdate is now **{state_str}**.")
 
@@ -135,6 +139,8 @@ class BotCommands(commands.Cog):
             await self.bot._update_config("allowed_channel_id", ctx.channel.id)
             channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
             await ctx.send(f"Bot is now restricted to channel: {channel_name}")
+
+        await self.bot.update_bot_presence()
 
     @commands.command(name="sh", aliases=["set_history", "hist"], help="[Admin] Set max history length. (;sh <num>)")
     @is_admin()
@@ -193,6 +199,10 @@ class BotCommands(commands.Cog):
     @commands.command(name="up", aliases=["update"], help="[Admin] Force update and restart bot script. (;up)")
     @is_admin()
     async def update_bot(self, ctx):
+        try:
+            await ctx.message.add_reaction('🔄')
+        except discord.HTTPException:
+            pass
         await self.bot.perform_update(ctx.channel)
 
     @commands.command(name="rs", aliases=["restart"], help="[Admin] Restarts bot script safely. (;rs)")
@@ -202,6 +212,10 @@ class BotCommands(commands.Cog):
             return
 
         self.bot.shutting_down = True
+        try:
+            await ctx.message.add_reaction('🔄')
+        except discord.HTTPException:
+            pass
         await ctx.send("Waiting for current generation to finish before restarting...")
 
         async with self.bot.global_llm_lock:
@@ -209,10 +223,14 @@ class BotCommands(commands.Cog):
             await self.bot._update_config("restart_channel_id", ctx.channel.id)
             await self.bot.close()
 
+            env = os.environ.copy()
+            env.pop('_MEIPASS2', None)
+            env.pop('_MEIPASS', None)
+
             if getattr(sys, 'frozen', False):
-                os.execv(sys.executable, sys.argv)
+                os.execve(sys.executable, sys.argv, env)
             else:
-                os.execv(sys.executable, ['python'] + sys.argv)
+                os.execve(sys.executable, [sys.executable] + sys.argv, env)
 
     @commands.command(name="sd", aliases=["shutdown", "kill"], help="[Admin] Shuts down bot safely. (;sd)")
     @is_admin()
@@ -221,6 +239,10 @@ class BotCommands(commands.Cog):
             return
 
         self.bot.shutting_down = True
+        try:
+            await ctx.message.add_reaction('🛑')
+        except discord.HTTPException:
+            pass
         await ctx.send("Waiting for current queue to finish before shutting down...")
 
         async with self.bot.global_llm_lock:
@@ -551,10 +573,16 @@ class DiscordLLMBot(commands.Bot):
                 await channel.send("Restarting bot to apply updates...")
 
             await self.close()
+
+            # Remove PyInstaller environment variables to prevent MEIPASS conflicts on restart
+            env = os.environ.copy()
+            env.pop('_MEIPASS2', None)
+            env.pop('_MEIPASS', None)
+
             if getattr(sys, 'frozen', False):
-                os.execv(sys.executable, sys.argv)
+                os.execve(sys.executable, sys.argv, env)
             else:
-                os.execv(sys.executable, ['python'] + sys.argv)
+                os.execve(sys.executable, [sys.executable] + sys.argv, env)
 
     async def update_bot_presence(self):
         enabled = self.bot_config.get("enabled", False)
@@ -760,7 +788,8 @@ class DiscordLLMBot(commands.Bot):
         if not is_dm and allowed_id is not None and message.channel.id != allowed_id:
             return
 
-        is_mentioned = self.user in message.mentions
+        # Improved mention detection to catch raw tags and bypass API caching issues
+        is_mentioned = self.user in message.mentions or f'<@{self.user.id}>' in message.content or f'<@!{self.user.id}>' in message.content
         should_reply = (is_mentioned or self.bot_config["reply_any_message"] or is_dm) and self.bot_config["enabled"]
         should_track = self.bot_config["track_non_mentions"]
 

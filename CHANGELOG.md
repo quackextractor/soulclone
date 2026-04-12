@@ -4,6 +4,13 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.8.2] - 2026-04-12
+### Fixed
+- **Mention Detection Flaw**: Resolved an issue where the bot ignored direct `@` mentions by implementing a raw string fallback (`<@ID>`) to bypass Discord API caching limitations and missing `message.mentions` payloads.
+- **Channel Restriction Status**: Fixed a state synchronization bug where setting a channel restriction via `;sc` failed to trigger the immediate `update_bot_presence` call, leaving the status stuck on "Enabled in Server".
+- **PyInstaller Restart Crash**: Resolved the `FileNotFoundError: [Errno 2]` SSL crash occurring during `;rs` and `;up` commands by clearing the cached `_MEIPASS` and `_MEIPASS2` environment variables before triggering `os.execve`, preventing PyInstaller directory conflicts.
+- **Autoupdate Command UX**: The `;up` command now immediately attaches a `🔄` reaction upon acknowledgment. Additionally, explicitly enabling autoupdates (`;au`) will now warn the user if the `GITHUB_REPO` variable is missing from `.env`.
+
 ## [2.8.1] - 2026-04-12
 ### Changed
 * Refactored queue state visualization: Replaced textual update replies with reaction markers. The bot will now react with a disk icon to mark messages captured in the persistent queue during a shutdown or update event.
