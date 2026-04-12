@@ -31,18 +31,6 @@ def toggle_autoupdate_env(new_state: bool):
             f.write(f"AUTOUPDATE={str(new_state)}\n")
 
 
-def cleanup_old_executables():
-    """Silently cleans up leftover .old files from previous updates upon successful boot."""
-    if getattr(sys, 'frozen', False):
-        exe_path = sys.executable
-        old_path = f"{exe_path}.old"
-        if os.path.exists(old_path):
-            try:
-                os.remove(old_path)
-            except Exception:
-                pass
-
-
 async def check_for_updates(github_repo, current_version):
     if getattr(sys, 'frozen', False):
         if not github_repo:
@@ -170,15 +158,56 @@ async def run_update(github_repo, log_callback=None):
 
 
 def restart_process():
-    env = os.environ.copy()
-    env.pop('_MEIPASS2', None)
-    env.pop('_MEIPASS', None)
+    """
+    A completely detached approach to restarting PyInstaller apps.
+    Writes a temporary batch/bash script that waits for the parent to die,
+    cleans up any .old files, and launches the app fresh.
+    This avoids ALL PyInstaller _MEIPASS lock and Cryptodome C-extension bugs.
+    """
+    system = platform.system().lower()
 
-    # Detach and spawn completely independent process
+    # Retrieve launch arguments
+    args = " ".join(sys.argv[1:]) if len(sys.argv) > 1 else "bot"
+
     if getattr(sys, 'frozen', False):
-        subprocess.Popen(sys.argv, env=env)
-    else:
-        subprocess.Popen([sys.executable] + sys.argv, env=env)
+        exe_path = sys.executable
+        if exe_path.endswith('.old'):
+            exe_path = exe_path[:-4]
 
-    # Hard exit current process to trigger bootloader cleanup of old _MEIPASS
+        exe_dir = os.path.dirname(exe_path)
+        old_exe_path = f"{exe_path}.old"
+
+        if system == "windows":
+            script_path = os.path.join(exe_dir, "restart_helper.bat")
+            with open(script_path, "w") as f:
+                f.write("@echo off\n")
+                f.write("timeout /t 3 /nobreak > NUL\n")
+                f.write(f'if exist "{old_exe_path}" del /f /q "{old_exe_path}"\n')
+                f.write(f'start "" "{exe_path}" {args}\n')
+                f.write('del "%~f0"\n')
+
+            subprocess.Popen(
+                [script_path],
+                creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP,
+                shell=True
+            )
+        else:
+            script_path = os.path.join(exe_dir, "restart_helper.sh")
+            with open(script_path, "w") as f:
+                f.write("#!/bin/bash\n")
+                f.write("sleep 3\n")
+                f.write(f'rm -f "{old_exe_path}"\n')
+                f.write(f'nohup "{exe_path}" {args} > /dev/null 2>&1 &\n')
+                f.write('rm -- "$0"\n')
+
+            os.chmod(script_path, 0o755)
+            subprocess.Popen([script_path], preexec_fn=os.setpgrp)
+    else:
+        # Running in standard Python, just detach new python process
+        if system == "windows":
+            subprocess.Popen([sys.executable] + sys.argv, creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP)
+        else:
+            subprocess.Popen([sys.executable] + sys.argv, preexec_fn=os.setpgrp)
+
+    # Hard exit immediately to clear file locks and let OS cleanup
     os._exit(0)

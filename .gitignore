@@ -4,3 +4,4 @@
 changes.patch
 *.zip
 *.db
+/out

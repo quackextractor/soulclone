@@ -4,6 +4,12 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.2] - 2026-04-12
+### Fixed
+- **PyInstaller Restart Crashes**: Resolved `Cryptodome.Hash` C-extension missing file errors during binary restarts. The application now uses a Detached Launcher Script (`restart_helper.bat`/`.sh`) to cleanly sever the PyInstaller parent-child relationship, preventing `_MEIPASS` directory corruption.
+- **Zombie Update Artifacts**: Solved an issue where `.old` executable files remained permanently locked by Windows during updates. The new background launcher actively scrubs the local directory 3 seconds after the parent process cleanly exits.
+- **Fatal Import Logs**: Refactored `main.py` to initialize the logging engine before parsing local application imports, ensuring catastrophic startup crashes are permanently captured in `main.log` instead of terminating silently.
+
 ## [2.9.1] - 2026-04-12
 ### Added
 * **Persistent Logging**: Integrated a comprehensive logging system that captures all system events and errors to `out/main.log`.
