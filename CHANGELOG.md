@@ -4,6 +4,10 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.6.1] - 2026-04-12
+### Fixed
+- **Queue Expiration Visuals**: Resolved an issue where expired message requests in the queue would only remove the hourglass indicator without providing clear visual feedback. The bot now successfully adds an alarm clock reaction to notify the user that their request timed out before it could be processed.
+
 ## [2.6.0] - 2026-04-12
 ### Added
 - **DM Access Whitelist**: Introduced a persistent database-backed whitelist for controlling DM access, replacing the previous hardcoded name-based system with robust Discord User ID (integer) validation.

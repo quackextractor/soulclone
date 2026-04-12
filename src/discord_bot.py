@@ -478,6 +478,7 @@ class DiscordLLMBot(commands.Bot):
                 if time.time() - received_at > expiration:
                     try:
                         await message.remove_reaction('⏳', self.user)
+                        await message.add_reaction('⚰')
                     except discord.HTTPException:
                         pass
                     return
