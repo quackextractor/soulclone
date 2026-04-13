@@ -7,6 +7,7 @@ import sys
 import time
 import discord
 from discord.ext import commands
+import subprocess
 
 
 def is_admin():
@@ -191,7 +192,10 @@ class BotCommands(commands.Cog):
 
         if getattr(sys, 'frozen', False):
             # Running as a bundled executable
-            os.execv(sys.executable, sys.argv)
+            env = os.environ.copy()
+            env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
+            subprocess.Popen([sys.executable] + sys.argv[1:], env=env)
+            os._exit(0)
         else:
             # Running as a raw python script
             os.execv(sys.executable, ['python'] + sys.argv)
@@ -205,4 +209,4 @@ class BotCommands(commands.Cog):
         await ctx.send("Shutting down...")
         await self.bot.change_presence(status=discord.Status.offline)
         await self.bot.close()
-        sys.exit(0)
+        os._exit(0)

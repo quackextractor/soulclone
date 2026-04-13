@@ -1,7 +1,7 @@
 # Discord Persona Fine-Tuning Pipeline
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.7.2-blue.svg)](https://github.com/quackextractor/soulclone)
+[![Version](https://img.shields.io/badge/version-2.7.3-blue.svg)](https://github.com/quackextractor/soulclone)
 
 ## Overview
 This project provides an end-to-end data preprocessing and training pipeline designed to fine-tune a Large Language Model (LLM) to clone the conversational style, timing, and behavioral patterns of any specific target Discord user.

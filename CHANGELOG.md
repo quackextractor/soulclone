@@ -4,6 +4,12 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.3] - 2026-04-13
+### Fixed
+* **Binary Restart Stability**: Resolved a `FileNotFoundError` (SSL/CACERT) crash during `;rs` by migrating from `os.execv` to a detached `subprocess.Popen` strategy.
+* **Environment Handling**: Integrated `PYINSTALLER_RESET_ENVIRONMENT=1` to ensure fresh asset extraction in frozen builds.
+* **Update Readiness**: Refactored process management to support the planned automated update architecture.
+
 ## [2.7.2] - 2026-04-13
 ### Removed
 * **Updater Cleanup**: Removed updater remains from master branch.
