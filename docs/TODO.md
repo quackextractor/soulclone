@@ -46,6 +46,6 @@
 
 ### Branch specific
 * [x] Optimize dependencies (I suspect there are unused dependencies) 
-* [ ] split the server into multiple files for better development l
+* [x] split the server into multiple files for better development l
 * [ ] make and improve implementation plan for how to ensure restart, update might work for binary implementation, regardless of OS.
 * [ ] implement back ez to implement features
