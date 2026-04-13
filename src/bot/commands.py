@@ -180,8 +180,13 @@ class BotCommands(commands.Cog):
     @commands.command(name="rs", aliases=["restart"], help="[Admin] Restarts bot script. (;rs)")
     @is_admin()
     async def restart(self, ctx):
+        """
+        Saves the current channel ID for the restart message, sets the bot
+        status to offline, and re-executes the main process.
+        """
         await ctx.send("Restarting bot script...")
         await self.bot.db.update_config("restart_channel_id", ctx.channel.id)
+        await self.bot.change_presence(status=discord.Status.offline)
         await self.bot.close()
 
         if getattr(sys, 'frozen', False):
@@ -194,6 +199,10 @@ class BotCommands(commands.Cog):
     @commands.command(name="sd", aliases=["shutdown", "kill"], help="[Admin] Shuts down bot. (;sd)")
     @is_admin()
     async def shutdown(self, ctx):
+        """
+        Sets the bot status to offline and terminates the process completely.
+        """
         await ctx.send("Shutting down...")
+        await self.bot.change_presence(status=discord.Status.offline)
         await self.bot.close()
         sys.exit(0)

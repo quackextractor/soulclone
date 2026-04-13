@@ -4,6 +4,10 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.1] - 2026-04-13
+### Fixed
+* **Presence Cleanup**: Resolved an issue where the bot appeared to remain connected for a short period after termination. It now explicitly broadcasts an offline status to the Discord gateway immediately upon initiating the `;sd` (shutdown) or `;rs` (restart) commands.
+
 ## [2.7.0] - 2026-04-13
 ### Changed
 * **Modularized Discord Bot Architecture**: Migrated the monolithic `discord_bot.py` logic into a new, structured `src/bot/` directory to improve codebase readability and facilitate easier development of upcoming features.
@@ -21,37 +25,37 @@ The format is based on [Keep a Changelog](https://keepachangelog.com), and this 
 
 ## [2.6.1] - 2026-04-12
 ### Fixed
-- **Queue Expiration Visuals**: Resolved an issue where expired message requests in the queue would only remove the hourglass indicator without providing clear visual feedback. The bot now successfully adds an alarm clock reaction to notify the user that their request timed out before it could be processed.
+* **Queue Expiration Visuals**: Resolved an issue where expired message requests in the queue would only remove the hourglass indicator without providing clear visual feedback. The bot now successfully adds an alarm clock reaction to notify the user that their request timed out before it could be processed.
 
 ## [2.6.0] - 2026-04-12
 ### Added
-- **DM Access Whitelist**: Introduced a persistent database-backed whitelist for controlling DM access, replacing the previous hardcoded name-based system with robust Discord User ID (integer) validation.
-- **Bot Status Indicator**: Presence now dynamically reflects the bot's state (Disabled, Enabled, or Restricted to a channel) with a dirty-flag mechanism to prevent Discord API rate limiting.
-- **Queue Expiration Time**: Added a configurable `queue_expiration` parameter to discard stale message requests in high-latency or high-load scenarios, preventing compute waste on outdated context.
-- Added `;whitelist` command group and `;set_expiration` command for administrative control.
+* **DM Access Whitelist**: Introduced a persistent database-backed whitelist for controlling DM access, replacing the previous hardcoded name-based system with robust Discord User ID (integer) validation.
+* **Bot Status Indicator**: Presence now dynamically reflects the bot's state (Disabled, Enabled, or Restricted to a channel) with a dirty-flag mechanism to prevent Discord API rate limiting.
+* **Queue Expiration Time**: Added a configurable `queue_expiration` parameter to discard stale message requests in high-latency or high-load scenarios, preventing compute waste on outdated context.
+* Added `;whitelist` command group and `;set_expiration` command for administrative control.
 
 ## [2.5.0] - 2026-04-12
 ### Fixed
-- **Executable Restart Bug**: Resolved an issue where the `;restart` command failed in standalone builds by correctly detecting the "frozen" state and adjusting process arguments.
+* **Executable Restart Bug**: Resolved an issue where the `;restart` command failed in standalone builds by correctly detecting the "frozen" state and adjusting process arguments.
 
 ## [2.4.0] - 2026-04-12
 ### Added
-- **Restructured ZIP Releases**: Distribution now uses versioned ZIP packages containing the root binary, configuration, documentation, and notebooks.
-- **Unbundled Config**: `config.yaml` and `.env.example` are now exposed external files instead of being baked into the binary.
-- **Project Structure Preservation**: Releases now include the `docs/` and `notebooks/` directories by default.
+* **Restructured ZIP Releases**: Distribution now uses versioned ZIP packages containing the root binary, configuration, documentation, and notebooks.
+* **Unbundled Config**: `config.yaml` and `.env.example` are now exposed external files instead of being baked into the binary.
+* **Project Structure Preservation**: Releases now include the `docs/` and `notebooks/` directories by default.
 
 ## [2.3.0] - 2026-04-12
 ### Added
-- **Automated Multi-Platform Builds**: Standalone executables for Windows and Linux are now generated automatically upon release.
-- **PyInstaller Integration**: Bundled dependencies (`lingua`, `pandas`) into a single-file portable binary.
-- Added `pyinstaller` to developer dependencies.
+* **Automated Multi-Platform Builds**: Standalone executables for Windows and Linux are now generated automatically upon release.
+* **PyInstaller Integration**: Bundled dependencies (`lingua`, `pandas`) into a single-file portable binary.
+* Added `pyinstaller` to developer dependencies.
 
 ## [2.2.0] - 2026-04-12
 ### Added
-- Integrated **pre-commit** hooks for automated linting (flake8, autopep8).
-- Automated **versioning system** linking `CHANGELOG.md` to `README.md` badges.
-- **GitHub Actions** workflow for automated releases based on changelog updates.
-- Centralized `.flake8` configuration for consistent code style.
+* Integrated **pre-commit** hooks for automated linting (flake8, autopep8).
+* Automated **versioning system** linking `CHANGELOG.md` to `README.md` badges.
+* **GitHub Actions** workflow for automated releases based on changelog updates.
+* Centralized `.flake8` configuration for consistent code style.
 
 ### Added
 * Added the `force_balanced` flag to `config.yaml` and integrated a strict bottleneck calculation within `sampler.py` to enforce the requested response distribution ratios, preventing minority buckets from breaking the output dataset balance.
