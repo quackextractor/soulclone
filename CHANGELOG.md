@@ -4,6 +4,10 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.2] - 2026-04-13
+### Removed
+* **Updater Cleanup**: Removed updater remains from master branch.
+
 ## [2.7.1] - 2026-04-13
 ### Fixed
 * **Presence Cleanup**: Resolved an issue where the bot appeared to remain connected for a short period after termination. It now explicitly broadcasts an offline status to the Discord gateway immediately upon initiating the `;sd` (shutdown) or `;rs` (restart) commands.
