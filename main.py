@@ -4,7 +4,7 @@ import logging
 
 from src.preprocess import process_discord_logs
 from src.sampler import generate_samples
-from src.discord_bot import run_bot
+from src.bot.core import run_bot
 
 
 def setup_logging():

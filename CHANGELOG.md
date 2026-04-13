@@ -4,8 +4,17 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.7.0] - 2026-04-13
+### Changed
+* **Modularized Discord Bot Architecture**: Migrated the monolithic `discord_bot.py` logic into a new, structured `src/bot/` directory to improve codebase readability and facilitate easier development of upcoming features.
+* **Logical Component Separation**: Decoupled the bot's core responsibilities into dedicated modules: `database.py` for all `aiosqlite` and configuration state management, `commands.py` for administrative and user command logic, and `core.py` for the primary event loop and LLM integration.
+* **Improved Documentation**: Added comprehensive docstrings and inline code documentation to all modularized source files to ensure maintainability and clarify component interactions.
+* **Refactored Main Entry Point**: Updated `main.py` to utilize the new `src.bot.core` import structure, ensuring the `bot` CLI command remains functional without altering its external behavior.
+## Fixed
+* **Removed unused pandas import from `preprocess.py`**: No longer needed since 2.6.2. This fixes a crash on that version due to missing `pandas` library.
+
 ## [2.6.2] - 2026-04-13
-### Optimized
+### Changed
 * **Reduced application footprint:** Removed the `pandas` dependency entirely to significantly decrease the final executable size and improve build performance.
 * **Streamlined data pipeline:** Refactored the CSV scanning logic in `src/preprocess.py` to use Python’s built-in `csv` module for high-speed indexing.
 * **Optimized build process:** Updated the `pyinstaller` configuration in the CI workflow and local build scripts to exclude unnecessary `pandas` modules and tests, further reducing deployment overhead.

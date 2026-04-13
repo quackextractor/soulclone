@@ -6,7 +6,6 @@ import yaml
 import random
 import sqlite3
 import sys  # Import sys for exiting the script
-import pandas as pd
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from tqdm import tqdm
