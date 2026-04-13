@@ -1,7 +1,6 @@
 python-dotenv
 PyYAML
 lingua-language-detector
-pandas
 pyzipper
 tqdm
 discord

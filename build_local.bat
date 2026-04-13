@@ -25,7 +25,7 @@ echo.
 
 REM Run PyInstaller with the optimized arguments
 echo Building Executable...
-pyinstaller --onefile --name SoulClone-Windows --collect-all lingua --exclude-module pandas.tests main.py
+pyinstaller --onefile --name SoulClone-Windows --collect-all lingua main.py
 
 if errorlevel 1 (
     echo.

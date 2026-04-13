@@ -25,7 +25,7 @@
 
 ### State Management & Task Queue
 * [ ] **Contextual Summarization:** Instead of outright deleting the oldest messages when hitting the `max_history` limit, have the bot generate a one-sentence summary of the dropped context to keep the "thread" of the conversation alive indefinitely.
-* [x] **Make the queue persist on restart / reboot** to ensure no pending responses are lost.
+* [ ] **Make the queue persist on restart / reboot** to ensure no pending responses are lost.
 * [x] **Add configurable expiration time in seconds.** If a message in the queue expires, remove the hourglass reaction and add an "expired" emoji.
 
 ---
@@ -38,6 +38,14 @@
 
 ### Development, CI/CD, & Releases
 * [x] **Add precommit hooks** with unit tests and linting + autofix linting to maintain code quality.
-* [x] **Add autoupdate from GitHub:** Finish writing currently queued messages before the update is received. Any messages queued after the update should be scheduled for after the restart. The bot should announce it is "restarting for update" (using `git pull`) and then resume the persistent queue.
+* [ ] **Add autoupdate from GitHub:** Finish writing currently queued messages before the update is received. Any messages queued after the update should be scheduled for after the restart. The bot should announce it is "restarting for update" (using `git pull`) and then resume the persistent queue.
 * [x] **Add releases:** Generate binary versions for Windows and Linux on changelog version bumps (following the workflow used in previous projects like `textfilemerger`).
-* [x] **For non-dev versions, add configurable auto-download and install of new releases** instead of requiring a manual `git pull`.
+* [ ] **For non-dev versions, add configurable auto-download and install of new releases** instead of requiring a manual `git pull`.
+
+---
+
+### Branch specific
+* [x] Optimize dependencies (I suspect there are unused dependencies) 
+* [x] split the server into multiple files for better development l
+* [ ] make and improve implementation plan for how to ensure restart, update might work for binary implementation, regardless of OS.
+* [ ] implement back ez to implement features

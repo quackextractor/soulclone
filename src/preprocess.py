@@ -6,7 +6,6 @@ import yaml
 import random
 import sqlite3
 import sys  # Import sys for exiting the script
-import pandas as pd
 from datetime import datetime, timezone
 from dotenv import load_dotenv
 from tqdm import tqdm
@@ -105,25 +104,31 @@ def parse_date(date_str):
 
 
 def build_user_map_sqlite(csv_files):
-    """Phase 0: Ultra-fast Pandas scan to build SQLite mapping, then dump to RAM."""
+    """Phase 0: Ultra-fast CSV scan to build SQLite mapping, then dump to RAM."""
     global USER_ID_MAP_RAM
 
-    print("Building Username Map (SQLite/Pandas)...")
+    print("Building Username Map (SQLite/CSV)...")
     for filepath in tqdm(csv_files, desc="Indexing Users", unit="file"):
         try:
-            df = pd.read_csv(filepath, usecols=lambda c: c in ["Author", "AuthorID", "User ID"], dtype=str)
-            if df.empty:
-                continue
+            with open(filepath, 'r', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
 
-            id_col = "AuthorID" if "AuthorID" in df.columns else "User ID"
-            if id_col not in df.columns or "Author" not in df.columns:
-                continue
+                if not reader.fieldnames or "Author" not in reader.fieldnames:
+                    continue
 
-            df = df.dropna(subset=[id_col, "Author"])
-            df["Author"] = df["Author"].apply(lambda x: str(x).split('#')[0].strip())
+                id_col = "AuthorID" if "AuthorID" in reader.fieldnames else ("User ID" if "User ID" in reader.fieldnames else None)
+                if not id_col:
+                    continue
 
-            records = df[[id_col, "Author"]].values.tolist()
-            cursor.executemany("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", records)
+                records = []
+                for row in reader:
+                    author = row.get("Author")
+                    uid = row.get(id_col)
+                    if author and uid:
+                        author_clean = str(author).split('#')[0].strip()
+                        records.append((str(uid), author_clean))
+
+                cursor.executemany("INSERT OR IGNORE INTO users (id, name) VALUES (?, ?)", records)
         except Exception:
             continue
 
@@ -131,7 +136,6 @@ def build_user_map_sqlite(csv_files):
     cursor.execute("SELECT COUNT(*) FROM users")
     print(f"Mapped {cursor.fetchone()[0]} unique users.")
 
-    # Dump the entire SQLite table into a lightning-fast Python dictionary
     cursor.execute("SELECT id, name FROM users")
     USER_ID_MAP_RAM = dict(cursor.fetchall())
 

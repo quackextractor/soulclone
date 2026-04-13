@@ -97,11 +97,11 @@ jobs:
 
     - name: Build Executable (Windows)
       if: matrix.os == 'windows-latest'
-      run: pyinstaller --onefile --name SoulClone-Windows --collect-all lingua --exclude-module pandas.tests main.py
+      run: pyinstaller --onefile --name SoulClone-Windows --collect-all lingua main.py
 
     - name: Build Executable (Linux)
       if: matrix.os == 'ubuntu-latest'
-      run: pyinstaller --onefile --name SoulClone-Linux --collect-all lingua --exclude-module pandas.tests main.py
+      run: pyinstaller --onefile --name SoulClone-Linux --collect-all lingua main.py
 
     - name: Prepare Release Package (Windows)
       if: matrix.os == 'windows-latest'

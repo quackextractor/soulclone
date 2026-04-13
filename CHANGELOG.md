@@ -4,100 +4,58 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
-
-Here is the streamlined `updater.py` and a condensed changelog.
-
-## [2.9.4] - 2026-04-12
+## [2.7.1] - 2026-04-13
 ### Fixed
-- **Direct Restart:** Replaced wonky `.bat`/`.sh` scripts with a direct, detached process spawn. 
-- **Fixes:** Fixed path-quoting issues with spaces, prevented file-handle leaks (log locks), and ensured `.env` version updates before restarting to prevent update loops.
+* **Presence Cleanup**: Resolved an issue where the bot appeared to remain connected for a short period after termination. It now explicitly broadcasts an offline status to the Discord gateway immediately upon initiating the `;sd` (shutdown) or `;rs` (restart) commands.
 
-## [2.9.3] - 2026-04-12
-### Fixed
-- **Infinite Update Loops**: The updater now correctly patches the `.env` file with the latest `CURRENT_VERSION` tag from GitHub immediately after extraction, preventing the bot from re-triggering the update process every time it restarts.
-- **Windows Restart Command Parsing**: Resolved a regression where `subprocess.Popen` would fail to launch the restart batch script on certain Windows environments due to quote-stripping; the script path is now passed as a properly wrapped raw string.
-- **Cross-Platform Binary Detection**: Relaxed the file-swap logic in `updater.py` to identify the bot executable by name rather than just extension, ensuring update compatibility for Linux and macOS users.
-- **Redundant Artifact Cleanup**: Integrated `cleanup_old_executables` directly into the Discord bot's `setup_hook` as a secondary safety measure, ensuring leftover `.old` binaries are scrubbed even if the detached helper script is interrupted.
-
-## [2.9.2] - 2026-04-12
-### Fixed
-- **PyInstaller Restart Crashes**: Resolved `Cryptodome.Hash` C-extension missing file errors during binary restarts. The application now uses a Detached Launcher Script (`restart_helper.bat`/`.sh`) to cleanly sever the PyInstaller parent-child relationship, preventing `_MEIPASS` directory corruption.
-- **Zombie Update Artifacts**: Solved an issue where `.old` executable files remained permanently locked by Windows during updates. The new background launcher actively scrubs the local directory 3 seconds after the parent process cleanly exits.
-- **Fatal Import Logs**: Refactored `main.py` to initialize the logging engine before parsing local application imports, ensuring catastrophic startup crashes are permanently captured in `main.log` instead of terminating silently.
-
-## [2.9.1] - 2026-04-12
-### Added
-* **Persistent Logging**: Integrated a comprehensive logging system that captures all system events and errors to `out/main.log`.
-* **Auto-Initialization**: The `out/` directory is now automatically created on startup if it does not exist.
-* **Log Rotation**: Implemented an automated log-clearing mechanism that wipes the previous `main.log` file upon every manual start or system restart to ensure developers are only reviewing current session data.
-* **Timestamped Events**: Enhanced all log entries with standard ISO timestamps (`YYYY-MM-DD HH:MM:SS`) to provide a precise chronological audit trail for debugging.
-
+## [2.7.0] - 2026-04-13
 ### Changed
-* **Global Logger Refactor**: Migrated from a console-only logging setup to a dual-target system using both `StreamHandler` and `FileHandler` for improved operational oversight.
+* **Modularized Discord Bot Architecture**: Migrated the monolithic `discord_bot.py` logic into a new, structured `src/bot/` directory to improve codebase readability and facilitate easier development of upcoming features.
+* **Logical Component Separation**: Decoupled the bot's core responsibilities into dedicated modules: `database.py` for all `aiosqlite` and configuration state management, `commands.py` for administrative and user command logic, and `core.py` for the primary event loop and LLM integration.
+* **Improved Documentation**: Added comprehensive docstrings and inline code documentation to all modularized source files to ensure maintainability and clarify component interactions.
+* **Refactored Main Entry Point**: Updated `main.py` to utilize the new `src.bot.core` import structure, ensuring the `bot` CLI command remains functional without altering its external behavior.
+## Fixed
+* **Removed unused pandas import from `preprocess.py`**: No longer needed since 2.6.2. This fixes a crash on that version due to missing `pandas` library.
 
-## [2.9.0] - 2026-04-12
-### Added
-* **CLI Update Controls**: Introduced `python main.py update` to manually trigger background update checks and `python main.py autoupdate <on|off>` to toggle the environment state from the root terminal.
-* **Persistent Autoupdate State**: The Discord `;au` command now actively modifies the `.env` file to ensure the autoupdate state persists across hard reboots and hardware crashes.
-* **Modular Updater**: Abstracted the GitHub release fetching, ZIP extraction, and executable swapping logic into a dedicated `src/updater.py` module to decouple it from the Discord API event loop.
-
-## [2.8.2] - 2026-04-12
-### Fixed
-- **Mention Detection Flaw**: Resolved an issue where the bot ignored direct `@` mentions by implementing a raw string fallback (`<@ID>`) to bypass Discord API caching limitations and missing `message.mentions` payloads.
-- **Channel Restriction Status**: Fixed a state synchronization bug where setting a channel restriction via `;sc` failed to trigger the immediate `update_bot_presence` call, leaving the status stuck on "Enabled in Server".
-- **PyInstaller Restart Crash**: Resolved the `FileNotFoundError: [Errno 2]` SSL crash occurring during `;rs` and `;up` commands by clearing the cached `_MEIPASS` and `_MEIPASS2` environment variables before triggering `os.execve`, preventing PyInstaller directory conflicts.
-- **Autoupdate Command UX**: The `;up` command now immediately attaches a `🔄` reaction upon acknowledgment. Additionally, explicitly enabling autoupdates (`;au`) will now warn the user if the `GITHUB_REPO` variable is missing from `.env`.
-
-## [2.8.1] - 2026-04-12
+## [2.6.2] - 2026-04-13
 ### Changed
-* Refactored queue state visualization: Replaced textual update replies with reaction markers. The bot will now react with a disk icon to mark messages captured in the persistent queue during a shutdown or update event.
-* Added native `message_id` tracking to the SQLite `history` schema with a backwards-compatible `ALTER TABLE` migration fallback during bot initialization.
-* Streamlined the `on_message` listening loop to remove duplicated code paths related to tracking and reacting to incoming requests.
-* Integrated dynamic reaction replacement into the `_resolve_persistent_queue` boot sequence. The system will now actively fetch previously queued messages, purge the pending disk marker, and attach the active processing icon before routing the request to the LLM queue.
-
-## [2.8.0] - 2026-04-12
-### Added
-- **Full ZIP Extraction for Autoupdater**: Modified the frozen autoupdate logic to correctly identify, download, and extract the versioned `.zip` packages produced by the CI/CD pipeline. The bot now copies supplementary directories (like `docs` and `notebooks`) and external config files to the working directory alongside swapping the main executable.
-
-## [2.7.0] - 2026-04-12
-### Added
-- **Automated Update System**: Added a background task and `;update` / `;autoupdate` commands to automatically fetch the latest GitHub release (for compiled binaries) or execute `git pull` (for source scripts) without disrupting active users.
-- **Persistent Task Queue**: Implemented a startup resolution mechanism (`_resolve_persistent_queue`) that scans the SQLite database for unprocessed, unexpired user messages, ensuring no requests are lost during sudden crashes or updates.
-- **Graceful State Management**: Added a `shutting_down` flag to safely route incoming messages to the persistent queue and wait for the active generation lock to clear before executing system reboots.
+* **Reduced application footprint:** Removed the `pandas` dependency entirely to significantly decrease the final executable size and improve build performance.
+* **Streamlined data pipeline:** Refactored the CSV scanning logic in `src/preprocess.py` to use Python’s built-in `csv` module for high-speed indexing.
+* **Optimized build process:** Updated the `pyinstaller` configuration in the CI workflow and local build scripts to exclude unnecessary `pandas` modules and tests, further reducing deployment overhead.
 
 ## [2.6.1] - 2026-04-12
 ### Fixed
-- **Queue Expiration Visuals**: Resolved an issue where expired message requests in the queue would only remove the hourglass indicator without providing clear visual feedback. The bot now successfully adds an alarm clock reaction to notify the user that their request timed out before it could be processed.
+* **Queue Expiration Visuals**: Resolved an issue where expired message requests in the queue would only remove the hourglass indicator without providing clear visual feedback. The bot now successfully adds an alarm clock reaction to notify the user that their request timed out before it could be processed.
 
 ## [2.6.0] - 2026-04-12
 ### Added
-- **DM Access Whitelist**: Introduced a persistent database-backed whitelist for controlling DM access, replacing the previous hardcoded name-based system with robust Discord User ID (integer) validation.
-- **Bot Status Indicator**: Presence now dynamically reflects the bot's state (Disabled, Enabled, or Restricted to a channel) with a dirty-flag mechanism to prevent Discord API rate limiting.
-- **Queue Expiration Time**: Added a configurable `queue_expiration` parameter to discard stale message requests in high-latency or high-load scenarios, preventing compute waste on outdated context.
-- Added `;whitelist` command group and `;set_expiration` command for administrative control.
+* **DM Access Whitelist**: Introduced a persistent database-backed whitelist for controlling DM access, replacing the previous hardcoded name-based system with robust Discord User ID (integer) validation.
+* **Bot Status Indicator**: Presence now dynamically reflects the bot's state (Disabled, Enabled, or Restricted to a channel) with a dirty-flag mechanism to prevent Discord API rate limiting.
+* **Queue Expiration Time**: Added a configurable `queue_expiration` parameter to discard stale message requests in high-latency or high-load scenarios, preventing compute waste on outdated context.
+* Added `;whitelist` command group and `;set_expiration` command for administrative control.
 
 ## [2.5.0] - 2026-04-12
 ### Fixed
-- **Executable Restart Bug**: Resolved an issue where the `;restart` command failed in standalone builds by correctly detecting the "frozen" state and adjusting process arguments.
+* **Executable Restart Bug**: Resolved an issue where the `;restart` command failed in standalone builds by correctly detecting the "frozen" state and adjusting process arguments.
 
 ## [2.4.0] - 2026-04-12
 ### Added
-- **Restructured ZIP Releases**: Distribution now uses versioned ZIP packages containing the root binary, configuration, documentation, and notebooks.
-- **Unbundled Config**: `config.yaml` and `.env.example` are now exposed external files instead of being baked into the binary.
-- **Project Structure Preservation**: Releases now include the `docs/` and `notebooks/` directories by default.
+* **Restructured ZIP Releases**: Distribution now uses versioned ZIP packages containing the root binary, configuration, documentation, and notebooks.
+* **Unbundled Config**: `config.yaml` and `.env.example` are now exposed external files instead of being baked into the binary.
+* **Project Structure Preservation**: Releases now include the `docs/` and `notebooks/` directories by default.
 
 ## [2.3.0] - 2026-04-12
 ### Added
-- **Automated Multi-Platform Builds**: Standalone executables for Windows and Linux are now generated automatically upon release.
-- **PyInstaller Integration**: Bundled dependencies (`lingua`, `pandas`) into a single-file portable binary.
-- Added `pyinstaller` to developer dependencies.
+* **Automated Multi-Platform Builds**: Standalone executables for Windows and Linux are now generated automatically upon release.
+* **PyInstaller Integration**: Bundled dependencies (`lingua`, `pandas`) into a single-file portable binary.
+* Added `pyinstaller` to developer dependencies.
 
 ## [2.2.0] - 2026-04-12
 ### Added
-- Integrated **pre-commit** hooks for automated linting (flake8, autopep8).
-- Automated **versioning system** linking `CHANGELOG.md` to `README.md` badges.
-- **GitHub Actions** workflow for automated releases based on changelog updates.
-- Centralized `.flake8` configuration for consistent code style.
+* Integrated **pre-commit** hooks for automated linting (flake8, autopep8).
+* Automated **versioning system** linking `CHANGELOG.md` to `README.md` badges.
+* **GitHub Actions** workflow for automated releases based on changelog updates.
+* Centralized `.flake8` configuration for consistent code style.
 
 ### Added
 * Added the `force_balanced` flag to `config.yaml` and integrated a strict bottleneck calculation within `sampler.py` to enforce the requested response distribution ratios, preventing minority buckets from breaking the output dataset balance.
