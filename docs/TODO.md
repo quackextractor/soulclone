@@ -41,3 +41,11 @@
 * [ ] **Add autoupdate from GitHub:** Finish writing currently queued messages before the update is received. Any messages queued after the update should be scheduled for after the restart. The bot should announce it is "restarting for update" (using `git pull`) and then resume the persistent queue.
 * [x] **Add releases:** Generate binary versions for Windows and Linux on changelog version bumps (following the workflow used in previous projects like `textfilemerger`).
 * [ ] **For non-dev versions, add configurable auto-download and install of new releases** instead of requiring a manual `git pull`.
+
+---
+
+### Branch specific
+* [x] Optimize dependencies (I suspect there are unused dependencies) 
+* [ ] split the server into multiple files for better development l
+* [ ] make and improve implementation plan for how to ensure restart, update might work for binary implementation, regardless of OS.
+* [ ] implement back ez to implement features
