@@ -38,9 +38,9 @@
 
 ### Development, CI/CD, & Releases
 * [x] **Add precommit hooks** with unit tests and linting + autofix linting to maintain code quality.
-* [ ] **Add autoupdate from GitHub:** Finish writing currently queued messages before the update is received. Any messages queued after the update should be scheduled for after the restart. The bot should announce it is "restarting for update" (using `git pull`) and then resume the persistent queue.
+* [x] **Add autoupdate from GitHub:** Finish writing currently queued messages before the update is received. Any messages queued after the update should be scheduled for after the restart. The bot should announce it is "restarting for update" (using `git pull`) and then resume the persistent queue.
 * [x] **Add releases:** Generate binary versions for Windows and Linux on changelog version bumps (following the workflow used in previous projects like `textfilemerger`).
-* [ ] **For non-dev versions, add configurable auto-download and install of new releases** instead of requiring a manual `git pull`.
+* [x] **For non-dev versions, add configurable auto-download and install of new releases** instead of requiring a manual `git pull`.
 
 ---
 

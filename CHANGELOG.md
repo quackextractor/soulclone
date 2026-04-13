@@ -4,6 +4,17 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.8.0] - 2026-04-13
+### Added
+* **Automated Update Engine**: Introduced the `;update` command to natively handle `git pull` for source deployments and ZIP payload hot-swapping for compiled binaries.
+* **Queue Protection**: Integrated a `shutting_down` lock to ensure active LLM generations finish cleanly before the update reboots the process.
+### Changed
+* **Asset Synchronization**: The update pipeline now safely migrates `docs/` and `notebooks/` directories while strictly preserving the active `.env` configuration.
+* **Update Cleanup**: Implemented an automated startup routine to detect and purge stale `.old` binary artifacts left over from Windows updates.
+### Fixed
+* **Windows File Locking**: Bypassed OS execution locks by enforcing a rename-before-replace strategy during binary updates.
+* **Linux Permissions**: Resolved execution failures on fresh updates by automatically applying `chmod 0o755` to extracted binaries.
+
 ## [2.7.3] - 2026-04-13
 ### Fixed
 * **Binary Restart Stability**: Resolved a `FileNotFoundError` (SSL/CACERT) crash during `;rs` by migrating from `os.execv` to a detached `subprocess.Popen` strategy.

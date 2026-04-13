@@ -25,6 +25,7 @@ class DiscordLLMBot(commands.Bot):
         self.api_key = os.getenv("LM_STUDIO_API_KEY", "lm-studio")
         self.admin_user_id = int(os.getenv("ADMIN_USER_ID", 0))
         self.current_status_hash = None
+        self.shutting_down = False
 
         if not self.bot_token or not self.target_user:
             print("Error: DISCORD_BOT_TOKEN and TARGET_USER must be set in your .env file.")
@@ -54,6 +55,14 @@ class DiscordLLMBot(commands.Bot):
         await self.db.load_config()
         await self.add_cog(BotCommands(self))
 
+        if getattr(sys, 'frozen', False):
+            old_exe = sys.executable + ".old"
+            if os.path.exists(old_exe):
+                try:
+                    os.remove(old_exe)
+                except Exception as e:
+                    print(f"Cleanup non-critical error: {e}")
+
     async def update_bot_presence(self):
         enabled = self.db.config.get("enabled", False)
         allowed_id = self.db.config.get("allowed_channel_id")
@@ -72,7 +81,6 @@ class DiscordLLMBot(commands.Bot):
 
         status_type = discord.Status.online if enabled else discord.Status.idle
 
-        # Hash check to avoid rate limits
         new_hash = hash((status_text, status_type))
         if new_hash != self.current_status_hash:
             await self.change_presence(status=status_type, activity=discord.Game(name=status_text))
@@ -117,6 +125,9 @@ class DiscordLLMBot(commands.Bot):
         if message.author == self.user:
             return
 
+        if self.shutting_down:
+            return
+
         self.bot_stats["messages_seen"] += 1
 
         if message.content.startswith(self.command_prefix):
@@ -138,7 +149,6 @@ class DiscordLLMBot(commands.Bot):
         should_reply = (is_mentioned or self.db.config.get("reply_any_message") or is_dm) and self.db.config.get("enabled")
         should_track = self.db.config.get("track_non_mentions")
 
-        # Formatting logic for the message
         clean_input = message.content.replace(f'<@{self.user.id}>', '').replace(f'<@!{self.user.id}>', '').strip()
         if not clean_input and message.attachments:
             clean_input = "[Sent an attachment]"
@@ -149,16 +159,13 @@ class DiscordLLMBot(commands.Bot):
         formatted_input = f"[{message.author.name}]: {clean_input}"
 
         if should_reply:
-            # 1. Immediate visual feedback
             try:
                 await message.add_reaction('⏳')
             except discord.HTTPException:
                 pass
 
-            # 2. Global lock to protect hardware
             received_at = time.time()
             async with self.global_llm_lock:
-                # Check for queue expiration
                 expiration = self.db.config.get("queue_expiration", 60)
                 if time.time() - received_at > expiration:
                     try:
@@ -215,14 +222,12 @@ class DiscordLLMBot(commands.Bot):
 
                 finally:
                     typing_task.cancel()
-                    # 3. Clean up reaction
                     try:
                         await message.remove_reaction('⏳', self.user)
                     except discord.HTTPException:
                         pass
 
         elif should_track:
-            # Passive tracking happens outside locks to keep the DB updated without blocking
             await self.db.add_to_history(message.channel.id, "user", formatted_input)
 
 
