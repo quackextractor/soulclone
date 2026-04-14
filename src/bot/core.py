@@ -101,11 +101,11 @@ class DiscordLLMBot(commands.Bot):
                 expiration = self.db.config.get("queue_expiration", 60)
                 if time.time() - received_at > expiration:
                     try:
-                        await message.remove_reaction('⏳', self.user)
+                        await message.add_reaction('⚰️')
                     except discord.HTTPException:
                         pass
                     try:
-                        await message.add_reaction('⚰️')
+                        await message.remove_reaction('⏳', self.user)
                     except discord.HTTPException:
                         pass
                     await self.db.dequeue_message(message_id)
@@ -113,11 +113,11 @@ class DiscordLLMBot(commands.Bot):
 
                 # Transition to Processing State (Eye Emoji)
                 try:
-                    await message.remove_reaction('⏳', self.user)
+                    await message.add_reaction('👀')
                 except discord.HTTPException:
                     pass
                 try:
-                    await message.add_reaction('👀')
+                    await message.remove_reaction('⏳', self.user)
                 except discord.HTTPException:
                     pass
 
@@ -126,11 +126,11 @@ class DiscordLLMBot(commands.Bot):
                     # Expiration Check 2 (In case it sat in the lock for too long)
                     if time.time() - received_at > expiration:
                         try:
-                            await message.remove_reaction('👀', self.user)
+                            await message.add_reaction('⚰️')
                         except discord.HTTPException:
                             pass
                         try:
-                            await message.add_reaction('⚰️')
+                            await message.remove_reaction('👀', self.user)
                         except discord.HTTPException:
                             pass
                         await self.db.dequeue_message(message_id)

@@ -4,6 +4,10 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.10.1] - 2026-04-14
+### Fixed
+* Swapped the order of adding and removing reactions during message processing and queue expiration to prevent Discord UI layout shifts.
+
 ## [2.10.0] - 2026-04-14
 ### Added
 * Migrated to a **persistent database-backed message queue** for reliable generation handling.
