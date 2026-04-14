@@ -4,6 +4,12 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.10.0] - 2026-04-14
+### Added
+* Migrated to a **persistent database-backed message queue** for reliable generation handling.
+* Implemented **startup recovery** to resume pending messages after a reboot.
+* Optimized the **update process** with background downloading and safe queue pausing.
+
 ## [2.9.0] - 2026-04-14
 ### Added
 * **Long-Term Memory (RAG)**: Integrated ChromaDB for persistent, vector-based conversational recall across sessions.

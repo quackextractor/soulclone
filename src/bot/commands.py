@@ -207,20 +207,16 @@ class BotCommands(commands.Cog):
             await ctx.send("Update failed. GITHUB_REPO is not defined in the .env file.")
             return
 
-        await ctx.send("Initiating update sequence. Locking queue and waiting for active generations to finish...")
-        self.bot.shutting_down = True
+        await ctx.send("Initiating background update. Processing will continue normally until the payload is ready...")
 
-        async with self.bot.global_llm_lock:
-            await ctx.send("Queue safely locked. Fetching updates...")
-
-            try:
-                if getattr(sys, 'frozen', False):
-                    await self._update_binary(ctx, repo)
-                else:
-                    await self._update_source(ctx)
-            except Exception as e:
-                await ctx.send(f"Update encountered a critical failure:\n```\n{e}\n```")
-                self.bot.shutting_down = False
+        try:
+            if getattr(sys, 'frozen', False):
+                await self._update_binary(ctx, repo)
+            else:
+                await self._update_source(ctx)
+        except Exception as e:
+            await ctx.send(f"Update encountered a critical failure:\n```\n{e}\n```")
+            self.bot.pause_queue = False
 
     async def _update_source(self, ctx):
         """Updates the local python repository using git pull."""
@@ -232,11 +228,15 @@ class BotCommands(commands.Cog):
         stdout, stderr = await process.communicate()
 
         if process.returncode == 0:
-            await ctx.send("Source updated successfully via Git. Restarting...")
-            await self.restart(ctx)
+            await ctx.send("Git pull complete. Pausing queue and waiting for active generation to finish...")
+
+            # Lock the queue from taking new jobs
+            self.bot.pause_queue = True
+            async with self.bot.global_llm_lock:
+                await ctx.send("Queue paused safely. Restarting framework...")
+                await self.restart(ctx)
         else:
             await ctx.send(f"Git pull failed. Ensure git is installed and repository is accessible:\n```\n{stderr.decode()}\n```")
-            self.bot.shutting_down = False
 
     async def _update_binary(self, ctx, repo):
         """Fetches, extracts, and hot-swaps the compiled release package."""
@@ -248,7 +248,6 @@ class BotCommands(commands.Cog):
             async with session.get(api_url) as resp:
                 if resp.status != 200:
                     await ctx.send(f"Failed to fetch release metadata. HTTP Status: {resp.status}")
-                    self.bot.shutting_down = False
                     return
                 release_data = await resp.json()
 
@@ -261,10 +260,9 @@ class BotCommands(commands.Cog):
 
         if not download_url:
             await ctx.send(f"No suitable zip asset found for {target_keyword} in the latest release.")
-            self.bot.shutting_down = False
             return
 
-        await ctx.send(f"Found latest {target_keyword} release. Downloading payload...")
+        await ctx.send(f"Found latest {target_keyword} release. Downloading payload in the background...")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             zip_path = os.path.join(temp_dir, "update.zip")
@@ -287,37 +285,42 @@ class BotCommands(commands.Cog):
             if os.path.exists(possible_wrapper) and os.path.isdir(possible_wrapper):
                 target_source_dir = possible_wrapper
 
-            await ctx.send("Download and extraction complete. Applying files...")
+            await ctx.send("Download and extraction complete. Pausing queue and waiting for active generation to finish...")
 
-            current_exe = sys.executable
-            if is_windows:
-                old_exe = current_exe + ".old"
-                if os.path.exists(old_exe):
-                    os.remove(old_exe)
-                os.rename(current_exe, old_exe)
+            # Lock the queue and wait for the LLM to yield
+            self.bot.pause_queue = True
+            async with self.bot.global_llm_lock:
+                await ctx.send("Queue paused safely. Applying files...")
 
-            work_dir = os.path.dirname(current_exe)
-            for item in os.listdir(target_source_dir):
-                source_item = os.path.join(target_source_dir, item)
-                dest_item = os.path.join(work_dir, item)
+                current_exe = sys.executable
+                if is_windows:
+                    old_exe = current_exe + ".old"
+                    if os.path.exists(old_exe):
+                        os.remove(old_exe)
+                    os.rename(current_exe, old_exe)
 
-                if item == ".env":
-                    continue
+                work_dir = os.path.dirname(current_exe)
+                for item in os.listdir(target_source_dir):
+                    source_item = os.path.join(target_source_dir, item)
+                    dest_item = os.path.join(work_dir, item)
 
-                if os.path.isdir(source_item):
-                    if os.path.exists(dest_item):
-                        shutil.rmtree(dest_item)
-                    shutil.copytree(source_item, dest_item)
-                else:
-                    shutil.copy2(source_item, dest_item)
+                    if item == ".env":
+                        continue
 
-            if not is_windows:
-                new_exe = os.path.join(work_dir, os.path.basename(current_exe))
-                if os.path.exists(new_exe):
-                    os.chmod(new_exe, 0o755)
+                    if os.path.isdir(source_item):
+                        if os.path.exists(dest_item):
+                            shutil.rmtree(dest_item)
+                        shutil.copytree(source_item, dest_item)
+                    else:
+                        shutil.copy2(source_item, dest_item)
 
-        await ctx.send("Update fully applied. Restarting framework...")
-        await self.restart(ctx)
+                if not is_windows:
+                    new_exe = os.path.join(work_dir, os.path.basename(current_exe))
+                    if os.path.exists(new_exe):
+                        os.chmod(new_exe, 0o755)
+
+                await ctx.send("Update fully applied. Restarting framework...")
+                await self.restart(ctx)
 
     @commands.command(name="rs", aliases=["restart"], help="[Admin] Restarts bot script. (;rs)")
     @is_admin()

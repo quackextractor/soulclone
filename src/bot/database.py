@@ -19,7 +19,27 @@ class BotDatabase:
                             (channel_id INTEGER, role TEXT, content TEXT, timestamp DATETIME DEFAULT CURRENT_TIMESTAMP)''')
             await conn.execute('''CREATE TABLE IF NOT EXISTS dm_whitelist
                             (user_id INTEGER PRIMARY KEY)''')
+            # Persistent queue table
+            await conn.execute('''CREATE TABLE IF NOT EXISTS message_queue
+                              (message_id INTEGER PRIMARY KEY, channel_id INTEGER,
+                               author_name TEXT, clean_input TEXT, received_at REAL)''')
             await conn.commit()
+
+    async def enqueue_message(self, message_id, channel_id, author_name, clean_input, received_at):
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute("INSERT OR REPLACE INTO message_queue VALUES (?, ?, ?, ?, ?)",
+                               (message_id, channel_id, author_name, clean_input, received_at))
+            await conn.commit()
+
+    async def dequeue_message(self, message_id):
+        async with aiosqlite.connect(self.db_path) as conn:
+            await conn.execute("DELETE FROM message_queue WHERE message_id = ?", (message_id,))
+            await conn.commit()
+
+    async def get_queued_messages(self):
+        async with aiosqlite.connect(self.db_path) as conn:
+            async with conn.execute("SELECT message_id, channel_id, author_name, clean_input, received_at FROM message_queue ORDER BY received_at ASC") as cursor:
+                return await cursor.fetchall()
 
     async def load_config(self):
         defaults = {

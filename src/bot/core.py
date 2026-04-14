@@ -26,7 +26,10 @@ class DiscordLLMBot(commands.Bot):
         self.api_key = os.getenv("LM_STUDIO_API_KEY", "lm-studio")
         self.admin_user_id = int(os.getenv("ADMIN_USER_ID", 0))
         self.current_status_hash = None
+
         self.shutting_down = False
+        self.pause_queue = False
+        self.generation_queue = asyncio.Queue()
 
         if not self.bot_token or not self.target_user:
             print("Error: DISCORD_BOT_TOKEN and TARGET_USER must be set in your .env file.")
@@ -57,6 +60,14 @@ class DiscordLLMBot(commands.Bot):
         await self.db.load_config()
         await self.add_cog(BotCommands(self))
 
+        # Load persistent queue on startup
+        queued_msgs = await self.db.get_queued_messages()
+        for msg in queued_msgs:
+            await self.generation_queue.put(msg)
+
+        # Start the background processor
+        self.loop.create_task(self.process_queue())
+
         if getattr(sys, 'frozen', False):
             old_exe = sys.executable + ".old"
             if os.path.exists(old_exe):
@@ -64,6 +75,133 @@ class DiscordLLMBot(commands.Bot):
                     os.remove(old_exe)
                 except Exception as e:
                     print(f"Cleanup non-critical error: {e}")
+
+    async def process_queue(self):
+        await self.wait_until_ready()
+
+        while not self.is_closed():
+            if self.pause_queue:
+                await asyncio.sleep(1)
+                continue
+
+            try:
+                msg_data = await self.generation_queue.get()
+                message_id, channel_id, author_name, clean_input, received_at = msg_data
+
+                # Re-fetch the message and channel
+                try:
+                    channel = self.get_channel(channel_id) or await self.fetch_channel(channel_id)
+                    message = await channel.fetch_message(message_id)
+                except discord.NotFound:
+                    # Message was deleted while in queue
+                    await self.db.dequeue_message(message_id)
+                    continue
+
+                # Expiration Check 1
+                expiration = self.db.config.get("queue_expiration", 60)
+                if time.time() - received_at > expiration:
+                    try:
+                        await message.remove_reaction('⏳', self.user)
+                    except discord.HTTPException:
+                        pass
+                    try:
+                        await message.add_reaction('⚰️')
+                    except discord.HTTPException:
+                        pass
+                    await self.db.dequeue_message(message_id)
+                    continue
+
+                # Transition to Processing State (Eye Emoji)
+                try:
+                    await message.remove_reaction('⏳', self.user)
+                except discord.HTTPException:
+                    pass
+                try:
+                    await message.add_reaction('👀')
+                except discord.HTTPException:
+                    pass
+
+                # Wait for the GPU to be free
+                async with self.global_llm_lock:
+                    # Expiration Check 2 (In case it sat in the lock for too long)
+                    if time.time() - received_at > expiration:
+                        try:
+                            await message.remove_reaction('👀', self.user)
+                        except discord.HTTPException:
+                            pass
+                        try:
+                            await message.add_reaction('⚰️')
+                        except discord.HTTPException:
+                            pass
+                        await self.db.dequeue_message(message_id)
+                        continue
+
+                    # Insert user message into context right before generating to keep turns ordered perfectly
+                    formatted_input = f"[{author_name}]: {clean_input}"
+                    await self.db.add_to_history(channel_id, "user", formatted_input)
+
+                    # Start typing indicator
+                    async def keep_typing_loop():
+                        try:
+                            while True:
+                                async with channel.typing():
+                                    await asyncio.sleep(8)
+                        except asyncio.CancelledError:
+                            pass
+                    typing_task = asyncio.create_task(keep_typing_loop())
+
+                    try:
+                        # Generation Loop
+                        history = await self.db.get_history(channel_id)
+                        base_prompt = self.db.config.get("system_prompt", self.system_prompt_default)
+
+                        if self.db.config.get("use_rag"):
+                            rag_context = await self.rag_memory.search_context(channel_id, clean_input)
+                            if rag_context:
+                                base_prompt += f"\n\n[System note: Here is relevant past context you remember:]\n{rag_context}"
+
+                        api_messages = [{"role": "system", "content": base_prompt}]
+                        current_char_count = len(api_messages[0]["content"])
+                        for msg in reversed(history):
+                            if current_char_count + len(msg["content"]) > 12000:
+                                break
+                            if len(api_messages) > 1 and api_messages[1]["role"] == msg["role"]:
+                                api_messages[1]["content"] = f"{msg['content']}\n{api_messages[1]['content']}"
+                            else:
+                                api_messages.insert(1, {"role": msg["role"], "content": msg["content"]})
+                            current_char_count += len(msg["content"])
+
+                        response = await self.client.chat.completions.create(
+                            model="local-model",
+                            messages=api_messages
+                        )
+                        bot_reply = response.choices[0].message.content
+                        await self.db.add_to_history(channel_id, "assistant", bot_reply)
+                        clean_reply = bot_reply.replace(f"[{self.target_user}]:", "").strip()
+
+                        if self.db.config.get("use_rag"):
+                            await self.rag_memory.add_interaction(channel_id, author_name, clean_input, clean_reply)
+
+                        await self.send_chunked_reply(message, clean_reply)
+                        self.bot_stats["messages_processed"] += 1
+
+                    except Exception as e:
+                        self.bot_stats["errors"] += 1
+                        await self.db.pop_last_history(channel_id)
+                        await message.reply(f"Error: {e}")
+                    finally:
+                        typing_task.cancel()
+
+                # Clean up processing state
+                try:
+                    await message.remove_reaction('👀', self.user)
+                except discord.HTTPException:
+                    pass
+
+                await self.db.dequeue_message(message_id)
+
+            except Exception as e:
+                print(f"Queue worker critical error: {e}")
 
     async def update_bot_presence(self):
         enabled = self.db.config.get("enabled", False)
@@ -167,84 +305,9 @@ class DiscordLLMBot(commands.Bot):
                 pass
 
             received_at = time.time()
-            async with self.global_llm_lock:
-                expiration = self.db.config.get("queue_expiration", 60)
-                if time.time() - received_at > expiration:
-                    try:
-                        await message.remove_reaction('⏳', self.user)
-                        await message.add_reaction('⚰')
-                    except discord.HTTPException:
-                        pass
-                    return
-
-                await self.db.add_to_history(message.channel.id, "user", formatted_input)
-
-                async def keep_typing_loop():
-                    try:
-                        while True:
-                            async with message.channel.typing():
-                                await asyncio.sleep(8)
-                    except asyncio.CancelledError:
-                        pass
-
-                typing_task = asyncio.create_task(keep_typing_loop())
-
-                try:
-                    history = await self.db.get_history(message.channel.id)
-
-                    base_prompt = self.db.config.get("system_prompt", self.system_prompt_default)
-
-                    if self.db.config.get("use_rag"):
-                        rag_context = await self.rag_memory.search_context(message.channel.id, clean_input)
-                        if rag_context:
-                            base_prompt += f"\n\n[System note: Here is relevant past context you remember:]\n{rag_context}"
-
-                    api_messages = [{"role": "system", "content": base_prompt}]
-
-                    current_char_count = len(api_messages[0]["content"])
-                    for msg in reversed(history):
-                        if current_char_count + len(msg["content"]) > 12000:
-                            break
-
-                        if len(api_messages) > 1 and api_messages[1]["role"] == msg["role"]:
-                            api_messages[1]["content"] = f"{msg['content']}\n{api_messages[1]['content']}"
-                        else:
-                            api_messages.insert(1, {"role": msg["role"], "content": msg["content"]})
-
-                        current_char_count += len(msg["content"])
-
-                    response = await self.client.chat.completions.create(
-                        model="local-model",
-                        messages=api_messages
-                    )
-
-                    bot_reply = response.choices[0].message.content
-                    await self.db.add_to_history(message.channel.id, "assistant", bot_reply)
-
-                    clean_reply = bot_reply.replace(f"[{self.target_user}]:", "").strip()
-
-                    if self.db.config.get("use_rag"):
-                        await self.rag_memory.add_interaction(
-                            message.channel.id,
-                            message.author.name,
-                            clean_input,
-                            clean_reply
-                        )
-
-                    await self.send_chunked_reply(message, clean_reply)
-                    self.bot_stats["messages_processed"] += 1
-
-                except Exception as e:
-                    self.bot_stats["errors"] += 1
-                    await self.db.pop_last_history(message.channel.id)
-                    await message.reply(f"Error: {e}")
-
-                finally:
-                    typing_task.cancel()
-                    try:
-                        await message.remove_reaction('⏳', self.user)
-                    except discord.HTTPException:
-                        pass
+            # Immediately save to persistent queue instead of locking here
+            await self.db.enqueue_message(message.id, message.channel.id, message.author.name, clean_input, received_at)
+            await self.generation_queue.put((message.id, message.channel.id, message.author.name, clean_input, received_at))
 
         elif should_track:
             await self.db.add_to_history(message.channel.id, "user", formatted_input)
