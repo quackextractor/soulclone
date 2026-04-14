@@ -98,8 +98,8 @@ class DiscordLLMBot(commands.Bot):
                 gifs = data.get("favoriteGifs", {}).get("gifs", {})
                 if not gifs:
                     return None
-                selected = random.choice(list(gifs.values()))
-                return selected.get("src")
+                # Extract the key (the original Tenor/Discord URL) instead of the proxy src
+                return random.choice(list(gifs.keys()))
             except Exception as e:
                 print(f"Error loading JSON GIFs: {e}")
                 return None
