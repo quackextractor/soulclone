@@ -4,6 +4,15 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.9.0] - 2026-04-14
+### Added
+* **Long-Term Memory (RAG)**: Integrated ChromaDB for persistent, vector-based conversational recall across sessions.
+* **Offline Embedding Model**: Bundled the `all-MiniLM-L6-v2` model directly into the PyInstaller executable for 100% offline operation without Hugging Face API calls.
+* **Memory Controls**: Added `;tr` (toggle RAG) and `;cr` (clear channel memory) commands for administrative management.
+### Changed
+* **Async Optimization**: Offloaded heavy vector database operations to background threads to prevent blocking the core Discord event loop.
+* **Build Architecture**: Updated GitHub Actions and local build scripts to collect and package the necessary C++ dependencies and model binaries.
+
 ## [2.8.0] - 2026-04-13
 ### Added
 * **Automated Update Engine**: Introduced the `;update` command to natively handle `git pull` for source deployments and ZIP payload hot-swapping for compiled binaries.
