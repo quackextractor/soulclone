@@ -191,14 +191,14 @@ class DiscordLLMBot(commands.Bot):
 
                 try:
                     history = await self.db.get_history(message.channel.id)
-                    
+
                     base_prompt = self.db.config.get("system_prompt", self.system_prompt_default)
-                    
+
                     if self.db.config.get("use_rag"):
                         rag_context = await self.rag_memory.search_context(message.channel.id, clean_input)
                         if rag_context:
                             base_prompt += f"\n\n[System note: Here is relevant past context you remember:]\n{rag_context}"
-                    
+
                     api_messages = [{"role": "system", "content": base_prompt}]
 
                     current_char_count = len(api_messages[0]["content"])
@@ -225,9 +225,9 @@ class DiscordLLMBot(commands.Bot):
 
                     if self.db.config.get("use_rag"):
                         await self.rag_memory.add_interaction(
-                            message.channel.id, 
-                            message.author.name, 
-                            clean_input, 
+                            message.channel.id,
+                            message.author.name,
+                            clean_input,
                             clean_reply
                         )
 

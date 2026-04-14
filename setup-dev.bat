@@ -35,6 +35,18 @@ if errorlevel 1 (
 )
 
 echo.
+
+REM Install pre-commit hooks
+echo Installing pre-commit hooks into the local git repository...
+pre-commit install
+if errorlevel 1 (
+    echo ERROR: pre-commit install failed.
+    pause
+    exit /b 1
+)
+
+echo.
+
 echo ============================================
 echo  Setup complete. Environment is now active.
 echo  You can now run commands like:
