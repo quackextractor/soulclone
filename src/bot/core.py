@@ -8,6 +8,9 @@ import time
 import datetime
 import asyncio
 import discord
+import json
+import random
+import aiohttp
 from discord.ext import commands
 from openai import AsyncOpenAI
 from dotenv import load_dotenv
@@ -26,6 +29,8 @@ class DiscordLLMBot(commands.Bot):
         self.base_url = os.getenv("LM_STUDIO_URL", "http://localhost:1234/v1")
         self.api_key = os.getenv("LM_STUDIO_API_KEY", "lm-studio")
         self.admin_user_id = int(os.getenv("ADMIN_USER_ID", 0))
+        self.gif_source_dir = os.getenv("GIF_SOURCE_DIR")
+        self.giphy_api_key = os.getenv("GIPHY_API_KEY")
         self.current_status_hash = None
 
         self.shutting_down = False
@@ -76,6 +81,52 @@ class DiscordLLMBot(commands.Bot):
                     os.remove(old_exe)
                 except Exception as e:
                     print(f"Cleanup non-critical error: {e}")
+
+    async def fetch_reaction_gif(self, mode: int, trigger_phrase: str):
+        """Fetches a GIF based on the active mode."""
+        choice = mode
+        if mode == 3:
+            choice = random.choice([1, 2])
+
+        if choice == 1:
+            if not self.gif_source_dir or not os.path.exists(self.gif_source_dir):
+                print("Error: GIF_SOURCE_DIR is invalid or missing.")
+                return None
+            try:
+                with open(self.gif_source_dir, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                gifs = data.get("favoriteGifs", {}).get("gifs", {})
+                if not gifs:
+                    return None
+                selected = random.choice(list(gifs.values()))
+                return selected.get("src")
+            except Exception as e:
+                print(f"Error loading JSON GIFs: {e}")
+                return None
+
+        elif choice == 2:
+            if not self.giphy_api_key:
+                print("Error: GIPHY_API_KEY is missing.")
+                return None
+
+            search_query = trigger_phrase.replace(" ", "+")
+            # Using Giphy's public search endpoint with a pg-13 rating filter
+            url = f"https://api.giphy.com/v1/gifs/search?api_key={self.giphy_api_key}&q={search_query}&limit=15&rating=pg-13"
+
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(url) as response:
+                        if response.status == 200:
+                            data = await response.json()
+                            results = data.get("data", [])
+                            if results:
+                                # Giphy's JSON structure requires digging into images -> original -> url
+                                return random.choice(results)["images"]["original"]["url"]
+            except Exception as e:
+                print(f"Error fetching Giphy GIF: {e}")
+                return None
+
+        return None
 
     async def process_queue(self):
         await self.wait_until_ready()
@@ -190,7 +241,29 @@ class DiscordLLMBot(commands.Bot):
                         if self.db.config.get("use_rag"):
                             await self.rag_memory.add_interaction(channel_id, author_name, clean_input, clean_reply)
 
-                        await self.send_chunked_reply(message, clean_reply)
+                        # GIF Reaction Logic (Checked before sending text)
+                        sent_gif = False
+                        try:
+                            gif_mode = int(self.db.config.get("gif_mode", "0"))
+                            if gif_mode > 0:
+                                raw_triggers = self.db.config.get("gif_triggers", "i don't know,idk")
+                                triggers = [t.strip().lower() for t in raw_triggers.split(",") if t.strip()]
+                                reply_lower = clean_reply.lower()
+
+                                matched_trigger = next((t for t in triggers if t in reply_lower), None)
+
+                                if matched_trigger:
+                                    gif_url = await self.fetch_reaction_gif(gif_mode, matched_trigger)
+                                    if gif_url:
+                                        await message.channel.send(gif_url)
+                                        sent_gif = True
+                        except Exception as gif_error:
+                            print(f"Non-critical error processing GIF reaction: {gif_error}")
+
+                        # Only send the generated text if a GIF was not sent
+                        if not sent_gif:
+                            await self.send_chunked_reply(message, clean_reply)
+
                         self.bot_stats["messages_processed"] += 1
 
                     except Exception as e:

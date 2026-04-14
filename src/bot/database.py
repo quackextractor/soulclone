@@ -52,7 +52,9 @@ class BotDatabase:
             "restart_channel_id": "None",
             "queue_expiration": "60",
             "use_rag": "False",
-            "use_environment_context": "False"
+            "use_environment_context": "False",
+            "gif_mode": "0",
+            "gif_triggers": "i don't know,i dont know,idk,no idea,im not sure"
         }
 
         async with aiosqlite.connect(self.db_path) as conn:
@@ -94,7 +96,9 @@ class BotDatabase:
             "restart_channel_id": "None",
             "queue_expiration": "60",
             "use_rag": "False",
-            "use_environment_context": "False"
+            "use_environment_context": "False",
+            "gif_mode": "0",
+            "gif_triggers": "i don't know,i dont know,idk,no idea,im not sure"
         }
         async with aiosqlite.connect(self.db_path) as conn:
             for key, default in defaults.items():

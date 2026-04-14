@@ -41,7 +41,7 @@ class BotCommands(commands.Cog):
         channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
         await ctx.send(f"Memory wiped for {channel_name}. Starting fresh.")
 
-    @commands.command(name="s", aliases=["stats", "st"], help="Shows bot stats. (;s)")
+    @commands.command(name="s", aliases=["stats"], help="Shows bot stats. (;s)")
     async def show_stats(self, ctx):
         uptime = int(time.time() - self.bot.bot_stats["start_time"])
         mins, secs = divmod(uptime, 60)
@@ -207,6 +207,26 @@ class BotCommands(commands.Cog):
         await self.bot.db.reset_to_defaults()
         await self.bot.update_bot_presence()
         await ctx.send("Bot configuration has been restored to default values.")
+
+    @commands.command(name="tg", aliases=["toggle_gif"], help="[Admin] Set GIF mode (0:Off, 1:JSON, 2:Giphy, 3:Mix). (;tg <0-3>)")
+    @is_admin()
+    async def toggle_gif(self, ctx, mode: int):
+        if mode not in [0, 1, 2, 3]:
+            await ctx.send("Invalid mode. Use 0 (Off), 1 (JSON), 2 (Giphy), or 3 (Mix).")
+            return
+        await self.bot.db.update_config("gif_mode", str(mode))
+
+        modes = {0: "Off", 1: "JSON Only", 2: "Giphy Search Only", 3: "Mix (JSON + Giphy)"}
+        await ctx.send(f"GIF reaction mode set to: **{modes[mode]}**")
+
+    @commands.command(name="st", aliases=["set_triggers"], help="[Admin] Set comma-separated trigger phrases. (;st phrase1, phrase2)")
+    @is_admin()
+    async def set_triggers(self, ctx, *, triggers: str):
+        if not triggers:
+            await ctx.send("Please provide a comma-separated list of triggers.")
+            return
+        await self.bot.db.update_config("gif_triggers", triggers.lower())
+        await ctx.send(f"GIF triggers updated to: `{triggers}`")
 
     @commands.command(name="update", aliases=["up"], help="[Admin] Auto-updates the bot to the latest version. (;update)")
     @is_admin()

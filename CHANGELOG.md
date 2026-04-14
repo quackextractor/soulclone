@@ -4,6 +4,12 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.12.0] - 2026-04-14
+### Added
+* **GIF Reactions:** Integrated automated GIF responses triggered by configurable keywords.
+* **Multiple Sources:** Added support for fetching GIFs via the Giphy API or a local JSON list.
+* **Admin Commands:** Introduced `;tg` to toggle GIF modes and `;st` to set custom trigger phrases.
+
 ## [2.11.0] - 2026-04-14
 ### Added
 * **Environment and Time Awareness**: Implemented a system to dynamically inject the current day, date and time into conversation prompts to improve persona authenticity.
