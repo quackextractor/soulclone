@@ -1,7 +1,7 @@
 # Discord Soul Clone - Project TODO
 
 ### Core Architecture & Deployment
-* [ ] **How will this run on a laptop?** Test on a low-end device.
+* [x] **How will this run on a laptop?** Test on a low-end device. Answer: Pretty damn well.
 * [x] **How does the bot handle DMs/multiple servers? Do separate channels have separate histories?** (Note: Yes, the bot's SQLite `history` table tracks conversational memory strictly by `channel_id`. When it pulls past context, it filters specifically for the current channel, so every DM and server channel maintains a isolated history.)
 * [ ] **Long-Term Memory (RAG):** Implement a vector database (e.g., ChromaDB or FAISS) to allow the bot to recall conversations from weeks ago. When a user asks about something from the past, the bot will fetch the relevant embedded context and inject it into the system prompt.
 
