@@ -25,8 +25,8 @@ echo.
 
 REM Run PyInstaller with the optimized arguments
 echo Building Executable...
-pyinstaller --onefile --name SoulClone-Windows --collect-all lingua --collect-all chromadb --collect-all sentence_transformers main.py
 
+pyinstaller --onefile --name SoulClone-Windows --add-data "models/all-MiniLM-L6-v2;models/all-MiniLM-L6-v2" --collect-all lingua --collect-all chromadb --collect-all sentence_transformers main.py
 if errorlevel 1 (
     echo.
     echo ERROR: PyInstaller build failed!

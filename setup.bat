@@ -34,6 +34,15 @@ if errorlevel 1 (
 )
 
 echo.
+echo Downloading Offline Embedding Model...
+python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='sentence-transformers/all-MiniLM-L6-v2', local_dir='models/all-MiniLM-L6-v2')"
+if errorlevel 1 (
+    echo ERROR: Model download failed.
+    pause
+    exit /b 1
+)
+
+echo.
 echo ============================================
 echo  Setup complete. Environment is now active.
 echo  You can now run commands like:

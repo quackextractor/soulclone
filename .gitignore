@@ -9,3 +9,5 @@ changes.patch
 *.spec
 /release_pkg
 /dist
+/chroma_db
+/models

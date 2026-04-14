@@ -9,30 +9,37 @@ import asyncio
 import chromadb
 from sentence_transformers import SentenceTransformer
 
+
 class LongTermMemory:
     def __init__(self, persist_directory="chroma_db"):
-        # Resolve path safely for both source and PyInstaller frozen states
+        # Path resolution for PyInstaller
         if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
+            # sys._MEIPASS is the temporary folder where PyInstaller extracts bundled files
+            bundle_dir = sys._MEIPASS
+            # The database needs to persist permanently next to the actual .exe
+            persist_base_dir = os.path.dirname(sys.executable)
         else:
-            base_dir = os.getcwd()
+            bundle_dir = os.getcwd()
+            persist_base_dir = os.getcwd()
 
-        self.persist_directory = os.path.join(base_dir, persist_directory)
-
-        # Initialize ChromaDB persistent client
+        # 1. Setup Persistent DB
+        self.persist_directory = os.path.join(persist_base_dir, persist_directory)
         self.client = chromadb.PersistentClient(path=self.persist_directory)
         self.collection = self.client.get_or_create_collection(name="conversation_history")
 
-        # Load ultra-lightweight CPU model for embeddings
-        self.embedding_model = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+        # 2. Load Offline Embedding Model (Strictly Local)
+        model_path = os.path.join(bundle_dir, "models", "all-MiniLM-L6-v2")
+
+        # Explicitly pass the local path to prevent any network calls
+        self.embedding_model = SentenceTransformer(model_path, device='cpu')
 
     def _add_interaction_sync(self, channel_id: int, user_name: str, user_msg: str, assistant_reply: str):
         """Synchronous backend for generating embeddings and storing in ChromaDB."""
         text = f"[{user_name}]: {user_msg}\n[Assistant]: {assistant_reply}"
         doc_id = f"{channel_id}_{time.time()}"
-        
+
         embedding = self.embedding_model.encode(text).tolist()
-        
+
         self.collection.add(
             ids=[doc_id],
             embeddings=[embedding],
@@ -48,24 +55,24 @@ class LongTermMemory:
         """Synchronous backend for vector search."""
         if self.collection.count() == 0:
             return ""
-        
+
         query_embedding = self.embedding_model.encode(query).tolist()
-        
+
         results = self.collection.query(
             query_embeddings=[query_embedding],
             n_results=n_results,
             where={"channel_id": channel_id}
         )
-        
+
         if not results['documents'] or not results['documents'][0]:
             return ""
-        
+
         return "\n".join(results['documents'][0])
 
     async def search_context(self, channel_id: int, query: str, n_results: int = 3) -> str:
         """Asynchronous wrapper for searching persistent memory."""
         return await asyncio.to_thread(self._search_context_sync, channel_id, query, n_results)
-    
+
     def _clear_memory_sync(self, channel_id: int = None):
         if channel_id:
             self.collection.delete(where={"channel_id": channel_id})
