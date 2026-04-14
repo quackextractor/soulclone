@@ -12,6 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com), and this 
 ### Changed
 * **Async Optimization**: Offloaded heavy vector database operations to background threads to prevent blocking the core Discord event loop.
 * **Build Architecture**: Updated GitHub Actions and local build scripts to collect and package the necessary C++ dependencies and model binaries.
+### Fixed
+* **Precommit Problems**
 
 ## [2.8.0] - 2026-04-13
 ### Added
