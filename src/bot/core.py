@@ -13,6 +13,7 @@ from dotenv import load_dotenv
 
 from src.bot.database import BotDatabase
 from src.bot.commands import BotCommands
+from src.bot.memory import LongTermMemory
 
 
 class DiscordLLMBot(commands.Bot):
@@ -42,6 +43,7 @@ class DiscordLLMBot(commands.Bot):
         self.global_llm_lock = asyncio.Lock()
 
         self.db = BotDatabase("bot_data.db", self.system_prompt_default)
+        self.rag_memory = LongTermMemory()
 
         self.bot_stats = {
             "start_time": time.time(),
@@ -189,7 +191,15 @@ class DiscordLLMBot(commands.Bot):
 
                 try:
                     history = await self.db.get_history(message.channel.id)
-                    api_messages = [{"role": "system", "content": self.db.config.get("system_prompt", self.system_prompt_default)}]
+                    
+                    base_prompt = self.db.config.get("system_prompt", self.system_prompt_default)
+                    
+                    if self.db.config.get("use_rag"):
+                        rag_context = await self.rag_memory.search_context(message.channel.id, clean_input)
+                        if rag_context:
+                            base_prompt += f"\n\n[System note: Here is relevant past context you remember:]\n{rag_context}"
+                    
+                    api_messages = [{"role": "system", "content": base_prompt}]
 
                     current_char_count = len(api_messages[0]["content"])
                     for msg in reversed(history):
@@ -212,6 +222,15 @@ class DiscordLLMBot(commands.Bot):
                     await self.db.add_to_history(message.channel.id, "assistant", bot_reply)
 
                     clean_reply = bot_reply.replace(f"[{self.target_user}]:", "").strip()
+
+                    if self.db.config.get("use_rag"):
+                        await self.rag_memory.add_interaction(
+                            message.channel.id, 
+                            message.author.name, 
+                            clean_input, 
+                            clean_reply
+                        )
+
                     await self.send_chunked_reply(message, clean_reply)
                     self.bot_stats["messages_processed"] += 1
 

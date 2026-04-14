@@ -30,7 +30,8 @@ class BotDatabase:
             "allowed_channel_id": "None",
             "system_prompt": self.system_prompt_default,
             "restart_channel_id": "None",
-            "queue_expiration": "60"
+            "queue_expiration": "60",
+            "use_rag": "False"
         }
 
         async with aiosqlite.connect(self.db_path) as conn:
@@ -70,7 +71,8 @@ class BotDatabase:
             "allowed_channel_id": "None",
             "system_prompt": self.system_prompt_default,
             "restart_channel_id": "None",
-            "queue_expiration": "60"
+            "queue_expiration": "60",
+            "use_rag": "False"
         }
         async with aiosqlite.connect(self.db_path) as conn:
             for key, default in defaults.items():

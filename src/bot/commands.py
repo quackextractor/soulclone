@@ -66,6 +66,7 @@ class BotCommands(commands.Cog):
         embed.add_field(name="Track Non-Mentions", value=str(self.bot.db.config["track_non_mentions"]), inline=True)
         embed.add_field(name="Bot Enabled", value=str(self.bot.db.config["enabled"]), inline=True)
         embed.add_field(name="Any Message Mode", value=str(self.bot.db.config["reply_any_message"]), inline=True)
+        embed.add_field(name="Long-Term Memory (RAG)", value=str(self.bot.db.config.get("use_rag", False)), inline=True)
         embed.add_field(name="Queue Expiration", value=f"{self.bot.db.config['queue_expiration']}s", inline=True)
 
         channel_name = "None (Any)"
@@ -137,6 +138,21 @@ class BotCommands(commands.Cog):
             return
         await self.bot.db.update_config("max_history", length)
         await ctx.send(f"Max history set to {length} messages.")
+
+    @commands.command(name="tr", aliases=["toggle_rag", "rag"], help="[Admin] Toggle Long-Term Memory (RAG). (;tr)")
+    @is_admin()
+    async def toggle_rag(self, ctx):
+        new_state = not self.bot.db.config.get("use_rag", False)
+        await self.bot.db.update_config("use_rag", new_state)
+        state_str = "ON" if new_state else "OFF"
+        await ctx.send(f"Long-Term Memory (RAG) is now **{state_str}**.")
+
+    @commands.command(name="cr", aliases=["clear_rag"], help="[Admin] Clear Long-Term Memory for this channel. (;cr)")
+    @is_admin()
+    async def clear_rag(self, ctx):
+        await self.bot.rag_memory.clear_memory(ctx.channel.id)
+        channel_name = "DM" if isinstance(ctx.channel, discord.DMChannel) else f"#{ctx.channel.name}"
+        await ctx.send(f"Long-Term Vector Memory wiped for {channel_name}.")
 
     @commands.group(name="whitelist", help="[Admin] Manage DM whitelist. (;whitelist <add|remove|list>)")
     @is_admin()

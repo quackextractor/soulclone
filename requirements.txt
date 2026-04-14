@@ -6,3 +6,5 @@ tqdm
 discord
 openai
 aiosqlite
+chromadb
+sentence-transformers
