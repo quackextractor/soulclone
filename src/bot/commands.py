@@ -12,6 +12,7 @@ import tempfile
 import zipfile
 import shutil
 import asyncio
+import random
 from discord.ext import commands
 import subprocess
 
@@ -227,6 +228,24 @@ class BotCommands(commands.Cog):
             return
         await self.bot.db.update_config("gif_triggers", triggers.lower())
         await ctx.send(f"GIF triggers updated to: `{triggers}`")
+
+    @commands.command(name="randomgif", aliases=["rgif", "gif"], help="Sends a random GIF based on the active mode. (;randomgif [search_term])")
+    async def random_gif(self, ctx, *, search_term: str = None):
+        gif_mode = int(self.bot.db.config.get("gif_mode", "0"))
+
+        if gif_mode == 0:
+            await ctx.send("GIF reactions are currently disabled. An admin can enable them with `;tg <1-3>`.")
+            return
+
+        if not search_term:
+            search_term = random.choice(["reaction", "funny", "idk", "what", "bruh", "wow"])
+
+        gif_url = await self.bot.fetch_reaction_gif(gif_mode, search_term)
+
+        if gif_url:
+            await ctx.send(gif_url)
+        else:
+            await ctx.send("Failed to fetch a GIF. Please check the bot's console for errors or missing API keys.")
 
     @commands.command(name="update", aliases=["up"], help="[Admin] Auto-updates the bot to the latest version. (;update)")
     @is_admin()
