@@ -51,7 +51,8 @@ class BotDatabase:
             "system_prompt": self.system_prompt_default,
             "restart_channel_id": "None",
             "queue_expiration": "60",
-            "use_rag": "False"
+            "use_rag": "False",
+            "use_environment_context": "False"
         }
 
         async with aiosqlite.connect(self.db_path) as conn:
@@ -92,7 +93,8 @@ class BotDatabase:
             "system_prompt": self.system_prompt_default,
             "restart_channel_id": "None",
             "queue_expiration": "60",
-            "use_rag": "False"
+            "use_rag": "False",
+            "use_environment_context": "False"
         }
         async with aiosqlite.connect(self.db_path) as conn:
             for key, default in defaults.items():

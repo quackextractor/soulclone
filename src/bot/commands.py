@@ -68,6 +68,7 @@ class BotCommands(commands.Cog):
         embed.add_field(name="Any Message Mode", value=str(self.bot.db.config["reply_any_message"]), inline=True)
         embed.add_field(name="Long-Term Memory (RAG)", value=str(self.bot.db.config.get("use_rag", False)), inline=True)
         embed.add_field(name="Queue Expiration", value=f"{self.bot.db.config['queue_expiration']}s", inline=True)
+        embed.add_field(name="Environment Context", value=str(self.bot.db.config.get("use_environment_context", False)), inline=True)
 
         channel_name = "None (Any)"
         allowed_id = self.bot.db.config["allowed_channel_id"]
@@ -118,6 +119,14 @@ class BotCommands(commands.Cog):
         await self.bot.db.update_config("reply_any_message", new_state)
         state_str = "ON" if new_state else "OFF"
         await ctx.send(f"Any message mode is now **{state_str}**.")
+
+    @commands.command(name="te", aliases=["toggle_env", "env"], help="[Admin] Toggle environment awareness. (;te)")
+    @is_admin()
+    async def toggle_env(self, ctx):
+        new_state = not self.bot.db.config.get("use_environment_context", False)
+        await self.bot.db.update_config("use_environment_context", new_state)
+        state_str = "ON" if new_state else "OFF"
+        await ctx.send(f"Environment and time awareness is now **{state_str}**.")
 
     @commands.command(name="sc", aliases=["set_channel", "chan"], help="[Admin] Restrict to channel. 'clear' to undo. (;sc)")
     @is_admin()

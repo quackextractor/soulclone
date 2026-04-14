@@ -4,6 +4,11 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.11.0] - 2026-04-14
+### Added
+* **Environment and Time Awareness**: Implemented a system to dynamically inject the current day, date and time into conversation prompts to improve persona authenticity.
+* **Toggle Command**: Added the `;te` command (with aliases `;toggle_env` and `;env`) to allow administrators to enable or disable environment context injection.
+
 ## [2.10.1] - 2026-04-14
 ### Fixed
 * Swapped the order of adding and removing reactions during message processing and queue expiration to prevent Discord UI layout shifts.

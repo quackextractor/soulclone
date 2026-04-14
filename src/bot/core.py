@@ -5,6 +5,7 @@ Handles the main event loop, LLM queuing, and chunked discord replies.
 import os
 import sys
 import time
+import datetime
 import asyncio
 import discord
 from discord.ext import commands
@@ -138,6 +139,13 @@ class DiscordLLMBot(commands.Bot):
 
                     # Insert user message into context right before generating to keep turns ordered perfectly
                     formatted_input = f"[{author_name}]: {clean_input}"
+
+                    if self.db.config.get("use_environment_context"):
+                        now = datetime.datetime.now()
+                        time_str = now.strftime("%A, %B %d, %Y at %I:%M %p")
+                        env_context = f"[System context: It is currently {time_str}]\n"
+                        formatted_input = env_context + formatted_input
+
                     await self.db.add_to_history(channel_id, "user", formatted_input)
 
                     # Start typing indicator
