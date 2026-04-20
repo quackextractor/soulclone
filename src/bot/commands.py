@@ -316,15 +316,24 @@ class BotCommands(commands.Cog):
             zip_path = os.path.join(temp_dir, "update.zip")
             extract_path = os.path.join(temp_dir, "extracted")
 
-            async with aiohttp.ClientSession() as session:
-                async with session.get(download_url) as resp:
-                    with open(zip_path, 'wb') as f:
-                        while True:
-                            chunk = await resp.content.read(1024)
-                            if not chunk:
-                                break
-                            f.write(chunk)
+            await ctx.send("Downloading update via aria2c (16x parallel connections)...")
 
+            # Construct the aria2c command
+            aria_cmd = f"aria2c -x 16 -s 16 -d {temp_dir} -o update.zip {download_url}"
+
+            # Execute aria2c as an asynchronous subprocess
+            process = await asyncio.create_subprocess_shell(
+                aria_cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE
+            )
+            stdout, stderr = await process.communicate()
+
+            if process.returncode != 0:
+                await ctx.send(f"Aria2c download failed:\n```\n{stderr.decode()}\n```")
+                return
+
+            # Extract the downloaded zip
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(extract_path)
 
@@ -341,11 +350,10 @@ class BotCommands(commands.Cog):
                 await ctx.send("Queue paused safely. Applying files...")
 
                 current_exe = sys.executable
-                if is_windows:
-                    old_exe = current_exe + ".old"
-                    if os.path.exists(old_exe):
-                        os.remove(old_exe)
-                    os.rename(current_exe, old_exe)
+                old_exe = current_exe + ".old"
+                if os.path.exists(old_exe):
+                    os.remove(old_exe)
+                os.rename(current_exe, old_exe)
 
                 work_dir = os.path.dirname(current_exe)
                 for item in os.listdir(target_source_dir):

@@ -4,6 +4,17 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.14.0] - 2026-04-20
+### Added
+* **Parallel Update Downloads**: Integrated `aria2c` into the bot's update engine to support 16x parallel connections, significantly reducing the downtime during binary hot-swapping.
+* **Aria2 Dependency**: Added `aria2` to the official Docker image to support the new high-speed update pipeline.
+### Changed
+* **Docker OS Upgrade**: Migrated the base image from Ubuntu 22.04 to Ubuntu 24.04 to resolve `GLIBC` compatibility issues with the latest GitHub Action build runners.
+### Fixed
+* **Linux Update Stability**: Resolved the `[Errno 26] Text file busy` error on Linux by applying the rename-before-replace strategy universally across all operating systems.
+* **Release Asset Size**: Forced CPU-only PyTorch installations in the CI/CD pipeline to prevent CUDA-related bloat, ensuring release packages remain under the 2 GB GitHub asset limit.
+* **GitHub Actions Warnings**: Updated the release workflow to use wildcard matching for ZIP assets, preventing OS-specific pattern match failures.
+
 ## [2.13.0] - 2026-04-20
 ### Added
 * **Docker Deployment**: Introduced out-of-the-box Docker support for easy Virtual Private Server (VPS) deployment.
