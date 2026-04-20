@@ -6,4 +6,4 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y ca-certificates unzip && rm -rf /var/lib/apt/lists/*
 
 # Execute the compiled binary
-CMD ["./SoulClone-Linux"]
+CMD ["./SoulClone-Linux", "bot"]
