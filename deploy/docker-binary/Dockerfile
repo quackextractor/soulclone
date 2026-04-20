@@ -1,0 +1,9 @@
+FROM ubuntu:22.04
+
+WORKDIR /app
+
+# Install certificates for secure downloads during the ;update command
+RUN apt-get update && apt-get install -y ca-certificates unzip && rm -rf /var/lib/apt/lists/*
+
+# Execute the compiled binary
+CMD ["./SoulClone-Linux"]

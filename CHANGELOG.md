@@ -4,6 +4,12 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.13.0] - 2026-04-20
+### Added
+* **Docker Deployment**: Introduced out-of-the-box Docker support for easy Virtual Private Server (VPS) deployment.
+* **Release Integration**: Automated the injection of `Dockerfile` and `docker-compose.yml` into the compiled Linux release packages via GitHub Actions.
+* **Persistent Volumes**: Configured Docker volume mapping to ensure `.env`, `config.yaml`, and database files safely persist across container rebuilds and in-app updates.
+
 ## [2.12.0] - 2026-04-14
 ### Added
 * **GIF Reactions:** Integrated automated GIF responses triggered by configurable keywords.

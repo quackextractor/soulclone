@@ -127,6 +127,10 @@ jobs:
         cp dist/SoulClone-Linux release_pkg/
         cp config.yaml .env.example LICENSE README.md release_pkg/
         cp -r docs notebooks release_pkg/
+        
+        cp deploy/docker-binary/Dockerfile release_pkg/Dockerfile
+        cp deploy/docker-binary/docker-compose.yml release_pkg/docker-compose.yml
+        
         zip -r SoulClone-Linux-v${{ needs.check-version.outputs.version }}.zip release_pkg/*
 
     - name: Extract Changelog Section

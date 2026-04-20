@@ -1,7 +1,7 @@
 # Discord Persona Fine-Tuning Pipeline
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/version-2.12.0-blue.svg)](https://github.com/quackextractor/soulclone)
+[![Version](https://img.shields.io/badge/version-2.13.0-blue.svg)](https://github.com/quackextractor/soulclone)
 
 ## Overview
 This project provides an end-to-end data preprocessing and training pipeline designed to fine-tune a Large Language Model (LLM) to clone the conversational style, timing, and behavioral patterns of any specific target Discord user.
@@ -25,6 +25,17 @@ By using exported CSV chat logs from direct messages, group chats, and server ch
 6. **Training:** Upload the payload to Google Drive and run `clone-training.ipynb` in Google Colab.
 7. **Inference:** Test your model natively in Colab using `chat-inference.ipynb`.
 8. **Bot Management:** Once deployed to Discord, use `;c` to view config and `;whitelist add <id>` to grant DM access.
+
+## Docker Deployment (VPS)
+
+Deploying to a Virtual Private Server (VPS) is natively supported via Docker. The automated GitHub releases contain a pre-configured Docker environment optimized for the compiled Linux binary.
+
+1. **Download:** Download the latest `SoulClone-Linux-vX.Y.Z.zip` from the Releases page to your VPS.
+2. **Extract:** Unzip the contents into your designated project folder.
+3. **Configure:** Rename `.env.example` to `.env` and fill in your configuration variables.
+4. **Launch:** Run `docker-compose up -d --build`.
+
+*Note: The included `docker-compose.yml` uses volume mapping. This ensures your `.env`, `config.yaml`, and database files remain persistent on your host machine disk, protecting your data even if the container restarts or the bot updates itself.*
 
 ## Key Features (v2.6.0)
 * **DM Whitelist System**: Securely control who can interact with the bot in DMs using persistent Discord User ID validation.
