@@ -13,8 +13,10 @@ import zipfile
 import shutil
 import asyncio
 import random
+import yaml
 from discord.ext import commands
 import subprocess
+from src.downloader import fast_isolated_download
 
 
 def is_admin():
@@ -310,27 +312,22 @@ class BotCommands(commands.Cog):
             await ctx.send(f"No suitable zip asset found for {target_keyword} in the latest release.")
             return
 
-        await ctx.send(f"Found latest {target_keyword} release. Downloading payload in the background...")
+        await ctx.send(f"Found latest {target_keyword} release. Downloading payload via native parallel connections...")
 
         with tempfile.TemporaryDirectory() as temp_dir:
             zip_path = os.path.join(temp_dir, "update.zip")
             extract_path = os.path.join(temp_dir, "extracted")
 
-            await ctx.send("Downloading update via aria2c (16x parallel connections)...")
+            try:
+                with open("config.yaml", "r", encoding="utf-8") as f:
+                    file_config = yaml.safe_load(f)
+            except Exception:
+                file_config = {}
 
-            # Construct the aria2c command
-            aria_cmd = f"aria2c -x 16 -s 16 -d {temp_dir} -o update.zip {download_url}"
+            success = await asyncio.to_thread(fast_isolated_download, download_url, temp_dir, "update.zip", file_config)
 
-            # Execute aria2c as an asynchronous subprocess
-            process = await asyncio.create_subprocess_shell(
-                aria_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await process.communicate()
-
-            if process.returncode != 0:
-                await ctx.send(f"Aria2c download failed:\n```\n{stderr.decode()}\n```")
+            if not success:
+                await ctx.send("Native parallel download failed.")
                 return
 
             # Extract the downloaded zip

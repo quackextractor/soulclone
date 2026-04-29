@@ -96,17 +96,13 @@ jobs:
         pip install -r requirements.txt
         pip install pyinstaller
 
-    - name: Download Embedding Model for Bundling
-      run: |
-        python -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='sentence-transformers/all-MiniLM-L6-v2', local_dir='models/all-MiniLM-L6-v2')"
-
     - name: Build Executable (Windows)
       if: matrix.os == 'windows-latest'
-      run: pyinstaller --onefile --name SoulClone-Windows --add-data "models/all-MiniLM-L6-v2;models/all-MiniLM-L6-v2" --collect-all lingua --collect-all chromadb --collect-all sentence_transformers main.py
+      run: pyinstaller --onefile --name SoulClone-Windows --collect-all lingua --collect-all chromadb --collect-all sentence_transformers main.py
 
     - name: Build Executable (Linux)
       if: matrix.os == 'ubuntu-latest'
-      run: pyinstaller --onefile --name SoulClone-Linux --add-data "models/all-MiniLM-L6-v2:models/all-MiniLM-L6-v2" --collect-all lingua --collect-all chromadb --collect-all sentence_transformers main.py
+      run: pyinstaller --onefile --name SoulClone-Linux --collect-all lingua --collect-all chromadb --collect-all sentence_transformers main.py
 
     - name: Prepare Release Package (Windows)
       if: matrix.os == 'windows-latest'

@@ -14,12 +14,9 @@ class LongTermMemory:
     def __init__(self, persist_directory="chroma_db"):
         # Path resolution for PyInstaller
         if getattr(sys, 'frozen', False):
-            # sys._MEIPASS is the temporary folder where PyInstaller extracts bundled files
-            bundle_dir = sys._MEIPASS
             # The database needs to persist permanently next to the actual .exe
             persist_base_dir = os.path.dirname(sys.executable)
         else:
-            bundle_dir = os.getcwd()
             persist_base_dir = os.getcwd()
 
         # 1. Setup Persistent DB
@@ -28,7 +25,10 @@ class LongTermMemory:
         self.collection = self.client.get_or_create_collection(name="conversation_history")
 
         # 2. Load Offline Embedding Model (Strictly Local)
-        model_path = os.path.join(bundle_dir, "models", "all-MiniLM-L6-v2")
+        model_path = os.path.join(persist_base_dir, "models", "all-MiniLM-L6-v2")
+
+        if not os.path.exists(model_path):
+            raise FileNotFoundError(f"Embedding model not found at {model_path}. Please run 'python main.py download --embedding'.")
 
         # Explicitly pass the local path to prevent any network calls
         self.embedding_model = SentenceTransformer(model_path, device='cpu')

@@ -4,6 +4,12 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.15.0] - 2026-04-29
+### Added
+* **llamafile integration**
+### Changed
+* **Seperated models from binaries**
+
 ## [2.14.0] - 2026-04-20
 ### Added
 * **Parallel Update Downloads**: Integrated `aria2c` into the bot's update engine to support 16x parallel connections, significantly reducing the downtime during binary hot-swapping.
