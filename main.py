@@ -121,7 +121,7 @@ def main():
 
         logging.info("Starting the Discord bot...")
         try:
-            run_bot()
+            run_bot(llamafile_process)
         finally:
             if llamafile_process:
                 logging.info("Terminating Llamafile server...")

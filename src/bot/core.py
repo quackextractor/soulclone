@@ -21,8 +21,9 @@ from src.bot.memory import LongTermMemory
 
 
 class DiscordLLMBot(commands.Bot):
-    def __init__(self):
+    def __init__(self, llamafile_process=None):
         load_dotenv()
+        self.llamafile_process = llamafile_process
 
         self.target_user = os.getenv("TARGET_USER")
         self.bot_token = os.getenv("DISCORD_BOT_TOKEN")
@@ -394,6 +395,6 @@ class DiscordLLMBot(commands.Bot):
             await self.db.add_to_history(message.channel.id, "user", formatted_input)
 
 
-def run_bot():
-    bot = DiscordLLMBot()
+def run_bot(llamafile_process=None):
+    bot = DiscordLLMBot(llamafile_process)
     bot.run(bot.bot_token)

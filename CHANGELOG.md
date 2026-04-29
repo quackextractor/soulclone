@@ -4,6 +4,14 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.15.2] - 2026-04-29
+### Added
+* **Llamafile Process Management**: Integrated the `llamafile_process` variable into the core bot architecture to allow administrative commands to cleanly terminate the background server[cite: 1].
+* **Headless Llamafile Boot**: Updated the Docker configuration to automatically download dependencies and launch the background LLM server with optimized RAM settings during container startup[cite: 1].
+### Fixed
+* **Llamafile Zombie Processes**: Patched a critical bug where restarting or updating the bot would leave the Llamafile server running as an orphaned process, causing port conflicts on reboot[cite: 1].
+* **Redundant Downloads**: Updated the downloader to check for existing model files before initiating a transfer, preventing unnecessary bandwidth usage on startup[cite: 1].
+
 ## [2.15.1] - 2026-04-29
 # Changed
 * **Skips llamafile download if already installed**

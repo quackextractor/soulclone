@@ -387,6 +387,9 @@ class BotCommands(commands.Cog):
         await self.bot.change_presence(status=discord.Status.offline)
         await self.bot.close()
 
+        if self.bot.llamafile_process:
+            self.bot.llamafile_process.terminate()
+
         if getattr(sys, 'frozen', False):
             env = os.environ.copy()
             env["PYINSTALLER_RESET_ENVIRONMENT"] = "1"
@@ -404,4 +407,8 @@ class BotCommands(commands.Cog):
         await ctx.send("Shutting down...")
         await self.bot.change_presence(status=discord.Status.offline)
         await self.bot.close()
+
+        if self.bot.llamafile_process:
+            self.bot.llamafile_process.terminate()
+
         os._exit(0)
