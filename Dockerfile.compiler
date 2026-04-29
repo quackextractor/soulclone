@@ -1,0 +1,16 @@
+FROM python:3.10-slim
+
+WORKDIR /src
+
+# Install core build tools
+RUN apt-get update && apt-get install -y build-essential && rm -rf /var/lib/apt/lists/*
+
+# Install PyInstaller
+RUN pip install --upgrade pip && pip install pyinstaller
+
+# Cache the heavy Python requirements
+COPY requirements.txt .
+
+# Force CPU-only PyTorch to skip CUDA bloat
+RUN pip install torch --index-url https://download.pytorch.org/whl/cpu
+RUN pip install -r requirements.txt
