@@ -4,6 +4,10 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.15.1] - 2026-04-29
+# Changed
+* **Skips llamafile download if already installed**
+
 ## [2.15.0] - 2026-04-29
 ### Added
 * **llamafile integration**

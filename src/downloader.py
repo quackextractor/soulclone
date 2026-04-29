@@ -35,6 +35,10 @@ def fast_isolated_download(url, output_dir, output_file, config):
     os.makedirs(output_dir, exist_ok=True)
     target_path = os.path.join(output_dir, output_file)
 
+    if os.path.exists(target_path):
+        print(f"{output_file} already exists at {target_path}. Skipping download.")
+        return True
+
     connections = int(config.get("downloads", {}).get("parallel_connections", 16))
 
     try:
