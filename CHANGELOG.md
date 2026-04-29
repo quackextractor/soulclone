@@ -4,6 +4,10 @@ All notable changes to the Discord Persona Cloning project will be documented in
 
 The format is based on [Keep a Changelog](https://keepachangelog.com), and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [2.15.3] - 2026-04-29
+### Fixed
+* **Exec format error on python**
+
 ## [2.15.2] - 2026-04-29
 ### Added
 * **Llamafile Process Management**: Integrated the `llamafile_process` variable into the core bot architecture to allow administrative commands to cleanly terminate the background server[cite: 1].

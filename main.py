@@ -117,6 +117,8 @@ def main():
             logging.info("Starting local Llamafile server...")
 
             command = [exe_path, "-m", gguf_name] + lf_args
+            if os.name != 'nt':
+                command = ["sh"] + command
             llamafile_process = subprocess.Popen(command, cwd="models")
 
         logging.info("Starting the Discord bot...")
